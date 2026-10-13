@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pulso DJ</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="performance.css"><link rel="stylesheet" href="assistant.css">
+</head>
+<body>
+  <header><div><span class="brand">PULSO<span> / DJ</span></span><small>Mezcla. Transforma. Hazlo tuyo.</small></div><span class="badge"><i></i> ASSIST · ALPHA 0.4</span></header>
+  <main>
+    <div class="section-title"><div><span class="eyebrow">TU CABINA DIGITAL</span><h1>Que la música se mueva.</h1></div><span id="audio-status">Audio listo para iniciar</span></div>
+    <details class="assistant-panel panel" open>
+      <summary><span>✦ Asistente musical</span><span class="eyebrow">SÍNTESIS LOCAL + TUS INDICACIONES</span></summary>
+      <p>Crea una capa musical y adáptala al movimiento visual. Esta versión usa reglas y síntesis, sin un modelo de Suno.</p>
+      <div class="assistant-layout">
+        <div class="camera-card"><video id="party-camera" muted playsinline aria-label="Vista previa de cámara"></video><div class="camera-buttons"><button id="camera-start" class="subtle">Activar cámara</button><button id="camera-stop" class="subtle" disabled>Apagar</button></div><p id="camera-status">Cámara apagada · Control manual</p><meter id="motion-level" min="0" max="1" value="0"></meter><small>Procesamiento local, sin grabación. Luces y movimiento de la cámara pueden alterar la medida.</small></div>
+        <div>
+          <div class="assistant-grid"><label>Estilo<select id="segment-style"><option value="house">House</option><option value="techno">Techno</option><option value="ambient">Ambient</option></select></label><label>Tonalidad menor<select id="segment-root"><option value="0">Do</option><option value="2">Re</option><option value="5">Fa</option><option value="7">Sol</option><option value="9">La</option></select></label><label>Tempo de referencia<select id="segment-reference"><option value="none">BPM propio</option><option value="0">Deck A (BPM manual)</option><option value="1">Deck B (BPM manual)</option></select></label><label>BPM propio<input id="segment-bpm" type="number" min="60" max="180" value="120"></label></div>
+          <div class="assistant-grid energy-row"><label>Energía que quieres <output id="energy-value">50%</output><input id="assistant-energy" type="range" min="0" max="100" value="50"></label><label>Volumen de la capa<input id="segment-level" type="range" min="0" max="0.35" step="0.001" value="0.16"></label></div>
+          <div class="instruction-row"><label>Tu indicación<input id="assistant-instruction" type="text" maxlength="200" placeholder="Sube energía, baja energía, suave o mantener"></label><button id="assistant-apply" class="subtle">Aplicar</button></div>
+          <div class="assistant-actions"><button id="segment-create">Crear y mezclar segmento</button><button id="segment-stop" class="subtle" disabled>Detener capa</button><button id="segment-save" class="subtle" disabled>Guardar WAV…</button></div>
+          <small id="segment-info">Segmentos de 4 compases con percusión, bajo y acordes. Ajusta la tonalidad de oído.</small>
+          <div class="assist-mode"><button id="assistant-auto" class="subtle">Adaptar segmento al ambiente</button><span>Objetivo <strong id="assistant-target">50%</strong></span></div>
+          <p id="assistant-decision" role="status">Elige un estilo y crea un segmento. La asistencia controla solo esa capa musical.</p>
+        </div>
+      </div>
+    </details>
+    <section id="decks" aria-label="Reproductores"></section>
+    <section class="mixer panel">
+      <div><span class="eyebrow">SALIDA MASTER</span><label>Volumen <input id="master" type="range" min="0" max="1" step="0.01" value="0.7"></label></div>
+      <div class="cross"><label for="crossfade">CROSSFADER <span>A ↔ B</span></label><input id="crossfade" type="range" min="0" max="1" step="0.001" value="0.5"><small>Curva de potencia constante</small></div>
+      <div><span class="eyebrow">NIVEL DE SALIDA</span><canvas id="spectrum" width="240" height="40" aria-label="Espectro de audio"></canvas><meter id="meter" min="0" max="1" value="0"></meter><small id="level">−∞ dBFS</small></div>
+    </section>
+    <section class="panel controllers">
+      <div class="section-title"><div><h2>Controladora MIDI</h2><p>Conecta tu mesa y asigna sus controles.</p></div><button id="connect">Buscar dispositivos</button></div>
+      <div class="midi-row"><label>Dispositivo<select id="device"><option value="">Sin conexión</option></select></label><label>Función<select id="target"></select></label><button id="learn">Aprender MIDI</button><button id="clear" class="subtle">Borrar asignaciones</button></div>
+      <p id="midi-status" role="status">También puedes mezclar con el ratón y el teclado.</p>
+      <div id="mappings"></div>
+    </section>
+    <footer><span>Espacio: deck A · Enter: deck B · C / N: volver al cue</span><span>Audio local · Sin cuenta</span></footer>
+    <p id="status" role="status">Carga una canción en cada deck para comenzar.</p>
+  </main>
+  <template id="deck-template">
+    <article class="deck panel">
+      <div class="section-title"><span class="deck-id"></span><button class="load subtle">+ Cargar pista</button></div>
+      <details class="youtube-box"><summary>↗ Importar audio de YouTube</summary><label class="youtube-label">URL del vídeo<input class="youtube-url" type="url" placeholder="https://www.youtube.com/watch?v=…" maxlength="2048"></label><div class="youtube-actions"><button class="youtube-import">Importar al deck</button><button class="youtube-cancel subtle" hidden>Cancelar</button><small>Vídeos públicos · Máximo 20 minutos</small></div><progress class="youtube-progress" max="100" value="0" hidden></progress><p class="youtube-message" role="status"></p><button class="youtube-save subtle" hidden>Guardar audio original…</button></details>
+      <div class="track-head"><div class="platter" aria-hidden="true"><div class="platter-label">P</div></div><div class="track-meta"><h2 class="track">Tu próxima pista</h2><p class="track-info">Carga música para entrar en sesión</p><span class="playing-label">EN ESPERA</span></div></div>
+      <canvas class="waveform" width="800" height="110" aria-label="Forma de onda"></canvas>
+      <div class="time"><strong class="elapsed">00:00</strong><span class="remaining">−00:00</span></div>
+      <label class="seek-label">Posición<input class="seek" type="range" min="0" max="1" step="0.001" value="0" disabled></label>
+      <div class="transport"><button class="play" disabled>▶ Reproducir</button><button class="cue" disabled>CUE</button><button class="set-cue subtle" disabled>Marcar cue</button></div>
+      <div class="controls"><label>Volumen<input class="volume" type="range" min="0" max="1" step="0.01" value="1"></label><label>Velocidad <output class="pitch-value">+0.0%</output><input class="pitch" type="range" min="-16" max="16" step="0.1" value="0"></label></div>
+      <div class="eq"><label>Graves<input data-eq="0" type="range" min="-24" max="12" step="0.5" value="0"></label><label>Medios<input data-eq="1" type="range" min="-24" max="12" step="0.5" value="0"></label><label>Agudos<input data-eq="2" type="range" min="-24" max="12" step="0.5" value="0"></label></div>
+      <div class="performance">
+        <div class="mini-heading"><span>HOT CUES</span><small>Primer toque: guardar · Shift + toque: borrar</small></div>
+        <div class="pads"><button data-hotcue="0" disabled><b>1</b><small>GUARDAR</small></button><button data-hotcue="1" disabled><b>2</b><small>GUARDAR</small></button><button data-hotcue="2" disabled><b>3</b><small>GUARDAR</small></button><button data-hotcue="3" disabled><b>4</b><small>GUARDAR</small></button></div>
+        <div class="mini-heading"><span>LOOP EN BEATS</span><span class="loop-status">DESACTIVADO</span></div>
+        <div class="loop-row"><button data-loop="1" disabled>1</button><button data-loop="2" disabled>2</button><button data-loop="4" disabled>4</button><button data-loop="8" disabled>8</button><button data-loop="16" disabled>16</button><button class="loop-off" disabled>Salir</button></div>
+        <div class="tempo-row"><label>BPM manual<input class="bpm" type="number" min="40" max="240" step="0.1" value="120"></label><button class="tap subtle">Tap tempo</button><small>El loop empieza donde lo activas.</small></div>
+        <div class="mini-heading"><span>FX RACK</span><button class="fx-reset subtle">Restablecer FX</button></div>
+        <div class="fx-controls"><label>Echo<input data-fx="echo" type="range" min="0" max="1" step="0.01" value="0"></label><label>Reverb<input data-fx="reverb" type="range" min="0" max="1" step="0.01" value="0"></label><label>Filtro LP<input data-fx="filter" type="range" min="0" max="1" step="0.01" value="0"></label><label>Drive<input data-fx="drive" type="range" min="0" max="1" step="0.01" value="0"></label></div>
+      </div>
+    </article>
+  </template>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>

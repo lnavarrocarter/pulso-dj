@@ -1,0 +1,31 @@
+{
+  "name": "pulso-dj",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Base de aplicación DJ para Windows y macOS",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "prestart": "node desktop/prepare-tools.cjs",
+    "tools:prepare": "node desktop/prepare-tools.cjs",
+    "predist": "node desktop/prepare-tools.cjs",
+    "prepack": "node desktop/prepare-tools.cjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:desktop": "electron desktop/smoke.cjs",
+    "test:youtube": "electron desktop/youtube-smoke.cjs",
+    "test:assistant": "electron desktop/assistant-smoke.cjs",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": { "electron": "44.7.0", "electron-builder": "26.15.3" },
+  "build": {
+    "appId": "dev.pulsodj.desktop",
+    "productName": "Pulso DJ",
+    "files": ["desktop/**", "src/**", "package.json"],
+    "directories": { "output": "release" },
+    "extraResources": [{ "from": "assets/tools/${os}", "to": "tools" }],
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "artifactName": "Pulso-DJ-${version}-Windows-Setup.${ext}" },
+    "mac": { "target": "dmg", "category": "public.app-category.music", "extendInfo": { "NSCameraUsageDescription": "Pulso DJ usa la cámara, cuando la activas, para medir movimiento visual localmente y adaptar la capa musical." } }
+  }
+}

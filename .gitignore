@@ -1,0 +1,12 @@
+node_modules/
+release/
+*.log
+work/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.DS_Store
+assets/tools/**/*.exe
+assets/tools/mac/yt-dlp
