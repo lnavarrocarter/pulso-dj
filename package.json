@@ -1,6 +1,6 @@
 {
   "name": "pulso-dj",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Base de aplicación DJ para Windows y macOS",
   "main": "desktop/main.cjs",
