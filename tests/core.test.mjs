@@ -37,3 +37,8 @@ test('potenciómetros con centro: EQ −24 … 0 … +12 dB con el 0 en la posic
   assert.equal(fromKnob(0.5, -24, 0, 12), 0); assert.equal(fromKnob(0, -24, 0, 12), -24); assert.equal(fromKnob(1, -24, 0, 12), 12);
   assert.equal(fromKnob(0.25, -24, 0, 12), -12); assert.equal(toKnob(6, -24, 0, 12), 0.75); assert.equal(toKnob(0, -24, 0, 12), 0.5);
 });
+test('enlaces de YouTube pegados de golpe: separados por espacios o líneas y sin repetir', async () => {
+  const { splitLinks } = await import('../src/library-ui.mjs');
+  assert.deepEqual(splitLinks(' https://youtu.be/a\nhttps://youtu.be/b  https://youtu.be/a '), ['https://youtu.be/a', 'https://youtu.be/b']);
+  assert.deepEqual(splitLinks('   '), []);
+});

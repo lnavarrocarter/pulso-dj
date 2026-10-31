@@ -1,8 +1,9 @@
 const { app, BrowserWindow, dialog, ipcMain, session } = require('electron');
-const { readFile, writeFile, stat } = require('node:fs/promises');
+const { readFile, writeFile, stat, copyFile } = require('node:fs/promises');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createImporter } = require('./youtube.cjs');
+const { createLibrary, FORMATS } = require('./library.cjs');
 const { checkPermission, requestPermission } = require('./permissions.cjs');
 const entry = path.join(__dirname, '../src/index.html');
 const entryURL = pathToFileURL(entry).href;
@@ -21,6 +22,35 @@ app.whenReady().then(() => {
     return importer.importAudio(url, progress => { if (!event.sender.isDestroyed()) event.sender.send('youtube:progress', progress); });
   });
   ipcMain.handle('youtube:cancel', event => { if (!authorized(event)) throw new Error('Origen no permitido'); importer.cancel(); });
+  const library = createLibrary(path.join(app.getPath('userData'), 'library'));
+  const handle = (channel, action) => ipcMain.handle(channel, (event, ...args) => {
+    if (!authorized(event)) throw new Error('Origen no permitido');
+    return action(event, ...args);
+  });
+  handle('library:list', () => library.list());
+  handle('library:import-youtube', async (event, url) => {
+    const file = await importer.importAudio(url, progress => { if (!event.sender.isDestroyed()) event.sender.send('youtube:progress', progress); });
+    return library.addImport(file, url);
+  });
+  handle('library:add-files', async (_event, multiple) => {
+    const result = await dialog.showOpenDialog(window, {
+      properties: multiple === false ? ['openFile'] : ['openFile', 'multiSelections'], filters: [{ name: 'Audio', extensions: FORMATS }]
+    });
+    const added = [], errors = [];
+    for (const file of result.canceled ? [] : result.filePaths) {
+      try { added.push(await library.addLocal(file)); } catch (error) { errors.push(error.message); }
+    }
+    return { added, errors };
+  });
+  handle('library:read', (_event, id) => library.read(id));
+  handle('library:set-duration', (_event, id, duration) => library.setDuration(id, duration));
+  handle('library:remove', (_event, id) => library.remove(id));
+  handle('library:export', async (_event, id) => {
+    const { file, name, format } = await library.exportPath(id);
+    const result = await dialog.showSaveDialog(window, { defaultPath: `${name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}.${format}`, filters: [{ name: 'Audio original', extensions: [format] }] });
+    if (result.canceled) return false;
+    await copyFile(file, result.filePath); return true;
+  });
   ipcMain.handle('audio:save-import', async (event, file) => {
     if (!authorized(event)) throw new Error('Origen no permitido');
     if (!file || !['m4a', 'webm', 'wav'].includes(file.format) || !(file.bytes instanceof Uint8Array) || file.bytes.byteLength > 128 * 1024 * 1024) throw new Error('Audio no válido para guardar.');

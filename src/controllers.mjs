@@ -75,6 +75,8 @@ export function createDDJSB3() {
         return amount !== null && number === 38 ? [{ deck: active[channel - 4], action: 'fxDepth', value: amount }] : [];
       }
       if (channel === 6) {
+        // Browse knob: two's-complement steps (1 = next track, 127 = previous); with SHIFT it jumps 10 at a time.
+        if (number === 64 || number === 100) { const step = value < 64 ? value : value - 128; return [{ action: 'browse', delta: number === 100 ? step * 10 : step }]; }
         const amount = fine(channel, number, value); if (amount === null) return [];
         if (number === 63) return [{ action: 'crossfade', value: amount }];
         if (number >= 55 && number <= 58) return [{ deck: number - 55, action: 'filter', value: filterAmount(amount) }];

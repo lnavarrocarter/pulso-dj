@@ -25,7 +25,18 @@
     </section>
     <section id="decks-right" class="deck-column" aria-label="Decks de la derecha"></section>
   </main>
-  <p id="status" role="status">Carga una canción en un deck para empezar.</p>
+  <p id="status" role="status">Añade pistas a la biblioteca y cárgalas en un deck para empezar.</p>
+  <section class="library" aria-labelledby="library-title">
+    <div class="library-bar">
+      <h2 id="library-title">Biblioteca <span id="library-count"></span></h2>
+      <form id="youtube-form" class="youtube-form"><input id="youtube-links" type="text" maxlength="20000" placeholder="Pega uno o varios enlaces de YouTube" aria-label="Enlaces de YouTube"><button type="submit">Añadir a la biblioteca</button></form>
+      <button id="add-files" class="subtle">Añadir archivos…</button>
+      <input id="library-search" type="search" placeholder="Buscar" aria-label="Buscar en la biblioteca">
+    </div>
+    <div id="import-queue" aria-live="polite"></div>
+    <div id="library-list" class="library-list" role="listbox" tabindex="0" aria-label="Pistas de la biblioteca; flechas para elegir, 1 a 4 para cargar en un deck"></div>
+    <p id="library-empty" class="library-empty"></p>
+  </section>
   <section class="drawers">
     <details class="drawer midi-drawer">
       <summary>Asignar controles a mano</summary>
@@ -50,7 +61,14 @@
       </div>
     </details>
   </section>
-  <footer><span>Espacio: deck 1 · Enter: deck 2 · C / N: volver al cue · Arrastra un plato para moverte por la pista</span><span>Audio local, sin cuenta</span></footer>
+  <footer><span>Espacio: deck 1 · Enter: deck 2 · C / N: volver al cue · Arrastra un plato para moverte por la pista · Arrastra una pista de la biblioteca a un deck para cargarla</span><span>Audio local, sin cuenta</span></footer>
+  <template id="track-row-template">
+    <div class="track-row" role="option" draggable="true">
+      <span class="row-title"></span><span class="row-source"></span><span class="row-decks"></span><span class="row-duration"></span>
+      <span class="row-load"><button data-load="0" class="deck-1">1</button><button data-load="1" class="deck-2">2</button><button data-load="2" class="deck-3">3</button><button data-load="3" class="deck-4">4</button></span>
+      <button class="row-export subtle" title="Guardar una copia del audio original">Guardar</button><button class="row-remove subtle" title="Quitar de la biblioteca">Quitar</button>
+    </div>
+  </template>
   <template id="deck-template">
     <article class="deck">
       <header class="deck-head">
@@ -58,7 +76,6 @@
         <div class="track-meta"><h2 class="track">Sin pista</h2><p class="track-info">Carga una pista para empezar</p></div>
         <div class="time"><strong class="elapsed">00:00</strong><span class="remaining">−00:00</span></div>
         <button class="load">Cargar</button>
-        <details class="youtube-box"><summary>YouTube</summary><div class="youtube-pop"><label class="youtube-label">URL del vídeo<input class="youtube-url" type="url" placeholder="https://www.youtube.com/watch?v=…" maxlength="2048"></label><div class="youtube-actions"><button class="youtube-import">Importar al deck</button><button class="youtube-cancel subtle" hidden>Cancelar</button></div><small>Vídeos públicos de hasta 20 minutos</small><progress class="youtube-progress" max="100" value="0" hidden></progress><p class="youtube-message" role="status"></p><button class="youtube-save subtle" hidden>Guardar audio original…</button></div></details>
       </header>
       <canvas class="waveform" width="800" height="110" aria-label="Forma de onda; haz clic para saltar a esa posición"></canvas>
       <div class="deck-body">

@@ -3,12 +3,13 @@ import { mountAssistant } from './assistant.mjs';
 import { midiEvent, mappingKey, formatTime, clamp, fromKnob } from './core.mjs';
 import { profileFor, nextLoopSize, JOG_SECONDS_PER_TICK } from './controllers.mjs';
 import { knob, platter, setMeter } from './console-ui.mjs';
+import { mountLibrary } from './library-ui.mjs';
 const $ = selector => document.querySelector(selector);
 const mixer = new Mixer();
 const status = message => { $('#status').textContent = message; };
 const safe = action => Promise.resolve().then(action).catch(error => status(error.message));
+// Browser fallback; the desktop app adds files through the library instead.
 async function chooseAudio() {
-  if (window.desktop) return window.desktop.chooseAudio();
   const input = document.createElement('input'); input.type = 'file'; input.accept = 'audio/*';
   return new Promise(resolve => {
     input.oncancel = () => resolve(null);
@@ -24,7 +25,7 @@ async function chooseAudio() {
 const targets = new Map();
 const views = [];
 const deckActions = [];
-let youtubeBusy = false;
+let library = null;
 let mappings = {};
 try { mappings = JSON.parse(localStorage.getItem('pulso.midi.v1') || '{}') || {}; } catch { mappings = {}; }
 if (typeof mappings !== 'object' || Array.isArray(mappings)) mappings = {};
@@ -64,7 +65,7 @@ mixer.decks.forEach((deck, index) => {
   const letter = 'ABCD'[index], number = index + 1;
   for (const part of [view, strip]) { part.dataset.index = String(index); part.classList.add(`deck-${number}`); }
   views.push(view); $(index % 2 ? '#decks-right' : '#decks-left').append(view); $('#strips').append(strip);
-  let importedFile = null;
+  let trackId = null;
   const find = selector => view.querySelector(selector) ?? strip.querySelector(selector);
   const findAll = selector => [...view.querySelectorAll(selector), ...strip.querySelectorAll(selector)];
   find('.deck-num').textContent = number; find('.platter-label').textContent = number; find('.strip-num').textContent = number;
@@ -75,58 +76,24 @@ mixer.decks.forEach((deck, index) => {
   find('.cue').onclick = recallCue;
   const setCue = () => { deck.cue = deck.position; status(`Cue del deck ${number} marcado en ${formatTime(deck.cue)}.`); };
   find('.set-cue').onclick = setCue;
-  const loadTrack = async file => {
+  // Decodes a track into this deck and returns its duration so the library can remember it.
+  const loadTrack = async (file, id = null) => {
     status(`Cargando ${file.name}…`);
     const bytes = new Uint8Array(file.bytes); await deck.load(bytes.buffer);
-    importedFile = file.format ? file : null; find('.youtube-save').hidden = !importedFile;
-    find('.track').textContent = file.name;
-    find('.track-info').textContent = `${formatTime(deck.duration)} · ${deck.buffer.sampleRate / 1000} kHz · ${deck.buffer.numberOfChannels} canales`;
+    trackId = id; find('.track').textContent = file.name;
+    find('.track-info').textContent = `${formatTime(deck.duration)} · ${deck.buffer.sampleRate / 1000} kHz · ${deck.buffer.numberOfChannels === 1 ? "mono" : "estéreo"}`;
     for (const element of view.querySelectorAll('.play,.cue,.set-cue,.sync,[data-hotcue],[data-loop],[data-pad-loop],.loop-off')) element.disabled = false;
     status(`Pista lista en el deck ${number}.`);
+    return deck.duration;
   };
   find('.load').onclick = () => safe(async () => {
+    if (deck.playing) { status(`El deck ${number} está sonando. Páusalo antes de cargar otra pista.`); return; }
     find('.load').disabled = true;
     try {
+      if (window.desktop?.library) { const [entry] = await library.addFiles(false); if (entry) await library.loadInto(index, entry.id); return; }
       const file = await chooseAudio();
-      if (!file) return;
-      await loadTrack(file);
+      if (file) await loadTrack(file);
     } finally { find('.load').disabled = false; }
-  });
-  find('.youtube-import').onclick = () => safe(async () => {
-    if (!window.desktop?.importYouTube) { find('.youtube-message').textContent = 'Para importar YouTube, abre la aplicación instalada de Pulso DJ.'; return; }
-    if (youtubeBusy) return;
-    const url = find('.youtube-url').value.trim();
-    if (!url) { find('.youtube-message').textContent = 'Pega primero la URL de un vídeo.'; return; }
-    youtubeBusy = true;
-    for (const button of document.querySelectorAll('.youtube-import')) button.disabled = true;
-    find('.load').disabled = true; find('.youtube-url').disabled = true;
-    find('.youtube-cancel').hidden = false; find('.youtube-cancel').disabled = false;
-    const progress = find('.youtube-progress'); progress.hidden = false; progress.removeAttribute('value');
-    find('.youtube-message').textContent = 'Iniciando importación…';
-    const unsubscribe = window.desktop.onYouTubeProgress(update => {
-      find('.youtube-message').textContent = update.message + (Number.isFinite(update.percent) ? ` ${update.percent.toFixed(0)}%` : '');
-      if (Number.isFinite(update.percent)) progress.value = update.percent;
-      if (update.stage === 'decoding') find('.youtube-cancel').disabled = true;
-    });
-    try {
-      const file = await window.desktop.importYouTube(url);
-      await loadTrack(file); find('.youtube-message').textContent = 'Audio importado. Ya puedes usar loops, cues y efectos.';
-    } catch (error) {
-      const message = error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
-      find('.youtube-message').textContent = message; status(message);
-    } finally {
-      unsubscribe(); youtubeBusy = false;
-      for (const button of document.querySelectorAll('.youtube-import')) button.disabled = false;
-      find('.load').disabled = false; find('.youtube-url').disabled = false;
-      find('.youtube-cancel').hidden = true; progress.hidden = true;
-    }
-  });
-  find('.youtube-cancel').onclick = () => safe(async () => { find('.youtube-cancel').disabled = true; await window.desktop.cancelYouTube(); });
-  find('.youtube-save').onclick = () => safe(async () => {
-    if (!importedFile) return;
-    find('.youtube-save').disabled = true;
-    try { if (await window.desktop.saveImportedAudio(importedFile)) status('Audio original guardado. Los efectos se aplican durante la reproducción.'); }
-    finally { find('.youtube-save').disabled = false; }
   });
   find('.waveform').onclick = event => {
     if (!deck.buffer) return;
@@ -187,9 +154,16 @@ mixer.decks.forEach((deck, index) => {
     touch: on => runAction({ deck: index, action: 'touch', on }),
     turn: ticks => jog(index, ticks)
   });
-  deckActions.push({ letter, number, view, strip, find, toggle, recallCue, setCue, startLoop, fxDepth: 0.5 });
+  deckActions.push({ letter, number, view, strip, find, toggle, recallCue, setCue, startLoop, loadTrack, trackId: () => trackId, fxDepth: 0.5 });
 });
 knob($('#master'));
+library = mountLibrary({
+  load: (deck, file, id) => deckActions[deck].loadTrack(file, id),
+  deckCount: () => document.body.classList.contains('decks-2') ? 2 : 4,
+  deckState: () => mixer.decks.map((deck, i) => ({ playing: deck.playing, trackId: deckActions[i].trackId() })),
+  status
+});
+deckActions.forEach((controls, index) => library.dropTarget(controls.view, index));
 bindRange($('#crossfade'), value => mixer.setCrossfade(value));
 bindRange($('#master'), value => mixer.setMaster(value));
 addTarget('crossfade', 'Mezclador · Crossfader', 'range', value => setRange($('#crossfade'), value));
@@ -274,7 +248,8 @@ function runAction({ deck: index, action, ...detail }) {
     }
     case 'fxDepth': controls.fxDepth = detail.value; for (const name of fxOn(index)) run(`fx.${name}`)(Math.max(detail.value, 0.01)); break;
     case 'fxReset': run('fxReset')(); break;
-    case 'load': controls.find('.load').click(); break;
+    case 'load': if (library.hasSelection()) library.loadInto(index); else controls.find('.load').click(); break;
+    case 'browse': library.moveSelection(detail.delta); break;
     case 'touch':
       controls.find('.platter').classList.toggle('held', detail.on);
       if (detail.on && deck.playing) { jogs[index].resume = true; deck.pause(); }
@@ -340,7 +315,7 @@ $('#learn').onclick = () => {
 $('#clear').onclick = () => { mappings = {}; cancelLearning(); saveMappings(); $('#midi-status').textContent = 'Asignaciones borradas.'; };
 showMappings();
 document.addEventListener('keydown', event => {
-  if (event.repeat || ['INPUT', 'SELECT', 'BUTTON'].includes(event.target.tagName)) return;
+  if (event.repeat || ['INPUT', 'SELECT', 'BUTTON'].includes(event.target.tagName) || event.target.closest?.('#library-list')) return;
   const action = { Space: 'A.play', Enter: 'B.play', KeyC: 'A.cue', KeyN: 'B.cue' }[event.code];
   if (action) { event.preventDefault(); targets.get(action).run(); }
 });
@@ -388,6 +363,7 @@ function showDecks(count) {
   document.body.classList.toggle('decks-4', count === 4); document.body.classList.toggle('decks-2', count === 2);
   for (const button of document.querySelectorAll('[data-decks]')) button.setAttribute('aria-pressed', String(Number(button.dataset.decks) === count));
   try { localStorage.setItem('pulso.decks', String(count)); } catch {}
+  library?.render();
 }
 for (const button of document.querySelectorAll('[data-decks]')) button.onclick = () => showDecks(Number(button.dataset.decks));
 try { showDecks(localStorage.getItem('pulso.decks') === '2' ? 2 : 4); } catch { showDecks(4); }

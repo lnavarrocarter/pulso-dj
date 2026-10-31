@@ -170,17 +170,39 @@ input.pitch::-webkit-slider-thumb, input.volume::-webkit-slider-thumb {
 .cross { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid #3c424b; }
 .cross .side { font-size: 12px; font-weight: 700; color: var(--dim); }
 
-/* YouTube import as a popover from the deck header */
-.youtube-box { position: relative; }
-.youtube-box summary { list-style: none; cursor: pointer; font-size: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); }
-.youtube-box summary::-webkit-details-marker { display: none; }
-.youtube-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; width: 300px; padding: 12px; border-radius: 8px; background: #22262c; border: 1px solid #454c56; box-shadow: 0 12px 30px #000a; display: grid; gap: 8px; }
-.youtube-label { display: grid; gap: 4px; font-size: 11px; color: var(--dim); }
-.youtube-url { width: 100%; padding: 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--well); color: var(--ink); }
-.youtube-actions { display: flex; gap: 8px; }
-.youtube-pop small, .youtube-message { font-size: 11px; color: var(--dim); margin: 0; }
-.youtube-message:empty { display: none; }
-.youtube-progress { width: 100%; height: 6px; accent-color: var(--led); }
+/* Library: tracks are added once, then loaded into a deck by button, drag and drop, keys 1-4 or the browse knob. */
+.library { margin: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid #2c3138; background: var(--chassis); }
+.library-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.library-bar h2 { margin: 0 6px 0 0; font-size: 15px; font-weight: 600; }
+#library-count { font-size: 11px; font-weight: 400; color: var(--dim); margin-left: 4px; }
+.youtube-form { display: flex; gap: 6px; flex: 1 1 360px; min-width: 0; }
+#youtube-links, #library-search { min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--well); color: var(--ink); font-size: 12px; }
+#youtube-links { flex: 1; }
+#library-search { width: 160px; }
+#import-queue:not(:empty) { display: grid; gap: 4px; margin-top: 8px; }
+.queue-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 5px; background: var(--well); font-size: 12px; }
+.queue-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+.queue-item.active span { color: var(--ink); }
+.queue-item.failed span { color: #ff8a80; }
+.queue-item progress { width: 140px; height: 6px; accent-color: var(--ink); }
+.queue-item button { padding: 3px 8px; font-size: 11px; }
+.library-list { margin-top: 8px; max-height: 240px; overflow-y: auto; border-radius: 6px; background: var(--well); }
+.library-list:empty { display: none; }
+.track-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 64px 90px 48px auto auto auto; align-items: center; gap: 10px;
+  padding: 5px 8px; border-bottom: 1px solid #1d2126; font-size: 12px; cursor: grab;
+}
+.track-row:hover { background: #1a1d22; }
+.track-row[aria-selected=true] { background: #262b33; box-shadow: inset 3px 0 var(--ink); }
+.row-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-source, .row-decks { font-size: 11px; color: var(--dim); white-space: nowrap; }
+.row-duration { text-align: right; color: var(--dim); }
+.row-load { display: flex; gap: 3px; }
+.row-load button { width: 26px; padding: 3px 0; font-weight: 700; color: var(--led); }
+.row-load button:hover:not(:disabled) { border-color: var(--led); }
+.track-row .subtle { padding: 3px 8px; font-size: 11px; color: var(--dim); }
+.library-empty { margin: 8px 0 2px; font-size: 12px; color: var(--dim); }
+.deck.drop { outline: 2px dashed var(--led); outline-offset: -2px; }
 
 /* Status, drawers and footer */
 #status { margin: 0 10px; padding: 8px 12px; border-radius: 6px; background: #1d2126; font-size: 12px; color: #aeb5bf; }
@@ -210,6 +232,8 @@ footer { display: flex; justify-content: space-between; gap: 12px; padding: 4px 
   .platter { --size: 108px; }
   .strips { grid-template-columns: repeat(2, 1fr); }
   .midi-row { grid-template-columns: minmax(0, 1fr); }
+  .track-row { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+  .row-source, .row-decks, .row-duration { display: none; }
   footer { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

@@ -72,8 +72,9 @@ Cada sección FX actúa sobre el deck activo en su lado (1 o 3 a la izquierda, 2
 | --- | --- | --- |
 | Crossfader | CC 31 / 63 | Crossfader |
 | FILTER decks 1-4 | CC 23-26 / 55-58 | A la izquierda del centro cierra el filtro paso bajo; la mitad derecha (paso alto) no tiene efecto |
-| LOAD decks 1-4 | notas 70-73 | Abrir el selector de archivo del deck |
-| Navegador, MASTER CUE, niveles de master y auriculares | CC 64, nota 91, CC 8 / 13 | Sin función (los niveles son analógicos) |
+| LOAD decks 1-4 | notas 70-73 | Cargar en ese deck la pista seleccionada en la biblioteca; sin selección, abre el selector de archivo |
+| Navegador, girar | CC 64 (CC 100 con SHIFT), relativo (1 = siguiente, 127 = anterior) | Mover la selección de la biblioteca (de 10 en 10 con SHIFT) |
+| Navegador pulsado, MASTER CUE, niveles de master y auriculares | nota 65, nota 91, CC 8 / 13 | Sin función (los niveles son analógicos) |
 
 ## Sincronización al conectar
 

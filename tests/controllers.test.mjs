@@ -79,3 +79,10 @@ test('sincronización: la SB3 informa del deck activo y se ignoran los valores d
   sb3.endSync();
   assert.deepEqual(sb3.receive([0x90, 11, 127]), [{ deck: 0, action: 'play' }]);
 });
+test('navegador de la biblioteca: girar mueve la selección y LOAD carga en cada deck', () => {
+  const sb3 = createDDJSB3();
+  assert.deepEqual(sb3.receive([0xb6, 64, 1]), [{ action: 'browse', delta: 1 }]);
+  assert.deepEqual(sb3.receive([0xb6, 64, 127]), [{ action: 'browse', delta: -1 }]);
+  assert.deepEqual(sb3.receive([0xb6, 100, 1]), [{ action: 'browse', delta: 10 }]);
+  assert.deepEqual(sb3.receive([0x96, 73, 127]), [{ deck: 3, action: 'load' }]);
+});
