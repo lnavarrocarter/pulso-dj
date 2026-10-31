@@ -11,13 +11,14 @@
     <span class="brand">Pulso<b>DJ</b></span>
     <div class="deck-mode" role="group" aria-label="Decks en pantalla"><button data-decks="2" aria-pressed="false">2 decks</button><button data-decks="4" aria-pressed="true">4 decks</button></div>
     <div class="midi-chip"><button id="connect">Conectar MIDI</button><select id="device" aria-label="Controladora MIDI"><option value="">Sin controladora</option></select><span id="midi-status" role="status">Ratón y teclado</span></div>
+    <label class="output-chip">Salida<select id="output" aria-label="Salida de audio"><option value="">Predeterminada de Windows</option></select></label>
     <span id="audio-status">Audio en espera</span>
   </header>
   <main class="console">
     <section id="decks-left" class="deck-column" aria-label="Decks de la izquierda"></section>
     <section class="mixer" aria-label="Mezclador">
       <div class="master-row">
-        <div class="master-knob"><label for="master">Master</label><input id="master" type="range" min="0" max="1" step="0.01" value="0.7"></div>
+        <div class="master-knob"><label for="master">Master</label><input id="master" type="range" min="0" max="1" step="0.01" value="0.7"><button id="master-cue" class="mode" aria-pressed="false" title="Escuchar el master por los cascos">Master cue</button></div>
         <div class="master-meter"><canvas id="spectrum" width="240" height="40" aria-label="Espectro de la salida"></canvas><div id="meter" class="vu horizontal" role="meter" aria-label="Nivel de salida" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><i></i></div><small id="level">−∞ dBFS</small></div>
       </div>
       <div id="strips" class="strips"></div>
@@ -86,13 +87,14 @@
         <div class="deck-controls">
           <div class="deck-row"><button class="sync" disabled>SYNC</button><button class="set-cue" disabled>Marcar cue</button><label class="bpm-box">BPM<input class="bpm" type="number" min="40" max="240" step="0.1" value="120"></label><button class="tap">TAP</button></div>
           <div class="loop-row" role="group" aria-label="Loop en beats"><button data-loop="1" disabled>1</button><button data-loop="2" disabled>2</button><button data-loop="4" disabled>4</button><button data-loop="8" disabled>8</button><button data-loop="16" disabled>16</button><button class="loop-off" disabled>Salir</button></div>
-          <div class="pads">
-            <button data-hotcue="0" disabled><b>1</b><small>Hot cue</small></button><button data-hotcue="1" disabled><b>2</b><small>Hot cue</small></button><button data-hotcue="2" disabled><b>3</b><small>Hot cue</small></button><button data-hotcue="3" disabled><b>4</b><small>Hot cue</small></button>
-            <button class="pad-loop" data-pad-loop="1" disabled><b>1</b><small>beat</small></button><button class="pad-loop" data-pad-loop="2" disabled><b>2</b><small>beats</small></button><button class="pad-loop" data-pad-loop="4" disabled><b>4</b><small>beats</small></button><button class="pad-loop" data-pad-loop="8" disabled><b>8</b><small>beats</small></button>
+          <label class="pad-mode-box">Pads<select class="pad-mode" aria-label="Modo de los pads"><option value="hotcue">Hot cue</option><option value="beatjump">Beat jump</option><option value="fxfade">FX fade</option><option value="roll">Roll</option><option value="scratch">Pad scratch</option><option value="slicer">Slicer</option><option value="sampler">Sampler</option><option value="trans">Trans</option></select></label>
+          <div class="pads" title="Mayús + clic: función con SHIFT">
+            <button data-pad="0"><b></b><small></small></button><button data-pad="1"><b></b><small></small></button><button data-pad="2"><b></b><small></small></button><button data-pad="3"><b></b><small></small></button>
+            <button data-pad="4"><b></b><small></small></button><button data-pad="5"><b></b><small></small></button><button data-pad="6"><b></b><small></small></button><button data-pad="7"><b></b><small></small></button>
           </div>
           <div class="fx-row"><div class="knob-slot"><label>Echo<input data-fx="echo" type="range" min="0" max="1" step="0.01" value="0"></label></div><div class="knob-slot"><label>Reverb<input data-fx="reverb" type="range" min="0" max="1" step="0.01" value="0"></label></div><div class="knob-slot"><label>Drive<input data-fx="drive" type="range" min="0" max="1" step="0.01" value="0"></label></div><button class="fx-reset subtle" title="Restablecer efectos">FX 0</button></div>
         </div>
-        <div class="tempo"><output class="pitch-value">0.0%</output><input class="pitch" type="range" min="-16" max="16" step="0.1" value="0" aria-label="Tempo"><span>Tempo</span></div>
+        <div class="tempo"><button class="mode vinyl" aria-pressed="true" title="Con VINYL, tocar el plato hace scratch">Vinyl</button><button class="mode keylock" aria-pressed="false" title="Mantener el tono al cambiar el tempo">Key lock</button><output class="pitch-value">0.0%</output><input class="pitch" type="range" min="-16" max="16" step="0.1" value="0" aria-label="Tempo"><span class="pitch-range">±16 %</span></div>
       </div>
       <span class="loop-status" hidden></span>
     </article>
@@ -100,11 +102,13 @@
   <template id="strip-template">
     <div class="strip">
       <span class="strip-num"></span>
+      <div class="knob-slot"><label>Trim<input class="trim" type="range" min="-24" max="12" step="0.5" value="0" data-center="0"></label></div>
       <div class="knob-slot"><label>Hi<input data-eq="2" type="range" min="-24" max="12" step="0.5" value="0" data-center="0"></label></div>
       <div class="knob-slot"><label>Mid<input data-eq="1" type="range" min="-24" max="12" step="0.5" value="0" data-center="0"></label></div>
       <div class="knob-slot"><label>Low<input data-eq="0" type="range" min="-24" max="12" step="0.5" value="0" data-center="0"></label></div>
-      <div class="knob-slot filter"><label>Filter<input data-fx="filter" type="range" min="0" max="1" step="0.01" value="0"></label></div>
+      <div class="knob-slot filter"><label>Filter<input data-fx="filter" type="range" min="-1" max="1" step="0.01" value="0" data-center="0"></label></div>
       <div class="fader-row"><div class="vu" role="meter" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><i></i></div><input class="volume" type="range" min="0" max="1" step="0.01" value="1"></div>
+      <button class="mode headphones" aria-pressed="false" title="Escuchar este canal por los cascos">Cue</button>
       <div class="assign" role="group"><button data-assign="A">A</button><button data-assign="THRU">·</button><button data-assign="B">B</button></div>
     </div>
   </template>

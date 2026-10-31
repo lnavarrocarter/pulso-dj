@@ -1,9 +1,10 @@
-import { Mixer } from './audio.mjs';
+import { Mixer, HOT_CUES } from './audio.mjs';
 import { mountAssistant } from './assistant.mjs';
-import { midiEvent, mappingKey, formatTime, clamp, fromKnob } from './core.mjs';
+import { midiEvent, mappingKey, formatTime, clamp, fromKnob, toKnob } from './core.mjs';
 import { profileFor, nextLoopSize, JOG_SECONDS_PER_TICK } from './controllers.mjs';
 import { knob, platter, setMeter } from './console-ui.mjs';
 import { mountLibrary } from './library-ui.mjs';
+import { createPads } from './pads.mjs';
 const $ = selector => document.querySelector(selector);
 const mixer = new Mixer();
 const status = message => { $('#status').textContent = message; };
@@ -32,8 +33,35 @@ if (typeof mappings !== 'object' || Array.isArray(mappings)) mappings = {};
 let access, learning = false;
 let profile = null, output = null;
 const leds = new Map();
-const jogs = mixer.decks.map(() => ({ resume: false, timer: 0 }));
+const jogs = mixer.decks.map(() => ({ timer: 0, turning: 0 }));
+// Beats of the running auto loop; null when there is no loop or it was set by hand with LOOP IN / OUT.
+const loopBeats = deck => deck.loop && !deck.loop.manual ? deck.loopBeats : null;
+const visibleDecks = () => document.body.classList.contains('decks-2') ? 2 : 4;
 function addTarget(id, label, kind, run) { targets.set(id, { label, kind, run }); }
+// Range targets take a 0-1 control position; knobs with a centre detent (EQ, trim, filter) keep 0 dB / open at 0.5.
+function toPosition(input) {
+  const min = Number(input.min), max = Number(input.max), value = Number(input.value);
+  return input.dataset.center === undefined ? (value - min) / (max - min) : toKnob(value, min, Number(input.dataset.center), max);
+}
+function rangeTarget(id, label, input) {
+  // min and max are read on each call: the tempo fader range changes with SHIFT + KEYLOCK.
+  addTarget(id, label, 'range', value => {
+    const min = Number(input.min), max = Number(input.max), center = input.dataset.center;
+    setRange(input, center === undefined ? min + value * (max - min) : fromKnob(value, min, Number(center), max));
+  });
+  targets.get(id).input = input;
+}
+const TEMPO_RANGES = [0.06, 0.1, 0.16, 0.5];
+// Soft takeover: once the screen has moved a control (mouse, SYNC, Auto DJ), the hardware only takes it back
+// when it reaches the screen value, so the sound never jumps. Faders on the SB3 have no motors.
+const hardware = new Map();
+function takeover(id, position) {
+  const input = targets.get(id)?.input, last = hardware.get(id);
+  hardware.set(id, position);
+  if (!input || last === undefined) return true;
+  const current = toPosition(input), near = value => Math.abs(value - current) < 0.02;
+  return near(last) || near(position) || (last - current) * (position - current) < 0;
+}
 function bindRange(element, callback) { element.addEventListener('input', () => callback(Number(element.value))); }
 function setRange(element, value) { element.value = value; element.dispatchEvent(new Event('input')); }
 // Writes to the page only when a value changes, so the 60 fps loop costs little while nothing moves.
@@ -48,16 +76,8 @@ function waveform(view, deck) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.strokeStyle = '#273447'; ctx.beginPath(); ctx.moveTo(0, 55); ctx.lineTo(800, 55); ctx.stroke();
   if (!deck.buffer) return;
-  if (view.cachedBuffer !== deck.buffer) {
-    const samples = deck.buffer.getChannelData(0), peaks = new Float32Array(400);
-    for (let i = 0; i < peaks.length; i++) {
-      const start = Math.floor(i * samples.length / peaks.length), end = Math.floor((i + 1) * samples.length / peaks.length);
-      for (let s = start; s < end; s += Math.max(1, Math.floor((end - start) / 100))) peaks[i] = Math.max(peaks[i], Math.abs(samples[s]));
-    }
-    view.cachedBuffer = deck.buffer; view.peaks = peaks;
-  }
   if (deck.loop) { ctx.fillStyle = '#ffffff18'; ctx.fillRect(deck.loop.start / deck.duration * 800, 0, (deck.loop.end - deck.loop.start) / deck.duration * 800, 110); }
-  const peaks = view.peaks;
+  const peaks = deck.peaks;
   ctx.fillStyle = view.ledColor ||= getComputedStyle(view).getPropertyValue('--led').trim();
   for (let i = 0; i < peaks.length; i++) {
     const peak = peaks[i];
@@ -89,7 +109,7 @@ mixer.decks.forEach((deck, index) => {
     const bytes = new Uint8Array(file.bytes); await deck.load(bytes.buffer);
     trackId = id; find('.track').textContent = file.name;
     find('.track-info').textContent = `${formatTime(deck.duration)} · ${deck.buffer.sampleRate / 1000} kHz · ${deck.buffer.numberOfChannels === 1 ? "mono" : "estéreo"}`;
-    for (const element of view.querySelectorAll('.play,.cue,.set-cue,.sync,[data-hotcue],[data-loop],[data-pad-loop],.loop-off')) element.disabled = false;
+    for (const element of view.querySelectorAll('.play,.cue,.set-cue,.sync,[data-loop],.loop-off')) element.disabled = false;
     status(`Pista lista en el deck ${number}.`);
     return deck.duration;
   };
@@ -109,12 +129,35 @@ mixer.decks.forEach((deck, index) => {
   };
   bindRange(find('.volume'), value => deck.setVolume(value));
   bindRange(find('.pitch'), value => { deck.setRate(1 + value / 100); find('.pitch-value').textContent = `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`; });
+  // SHIFT + KEYLOCK: ±6, ±10, ±16 or ±50 %. The current tempo is kept when it fits the new range.
+  const cycleTempoRange = () => {
+    const range = TEMPO_RANGES[(TEMPO_RANGES.indexOf(deck.range) + 1) % TEMPO_RANGES.length], pitch = find('.pitch');
+    const percent = (deck.rate - 1) * 100;
+    deck.setRange(range); pitch.min = String(-range * 100); pitch.max = String(range * 100); pitch.step = range > 0.2 ? '0.5' : '0.1';
+    setRange(pitch, clamp(percent, -range * 100, range * 100));
+    find('.pitch-range').textContent = `±${range * 100} %`; status(`Deck ${number}: rango de tempo ±${range * 100} %.`);
+  };
+  const setHeadphones = on => {
+    if (on && !mixer.cueAvailable) { status('Para escuchar por cascos elige como salida de audio una tarjeta de 4 canales, como la DDJ-SB3.'); return; }
+    deck.setHeadphones(on); find('.headphones').setAttribute('aria-pressed', String(on));
+  };
+  find('.headphones').onclick = () => setHeadphones(!deck.headphones);
+  let slip = false;
   for (const element of findAll('[data-eq]')) bindRange(element, value => deck.setEQ(Number(element.dataset.eq), value));
+  bindRange(find('.trim'), value => deck.setTrim(value));
+  const setKeylock = on => { deck.setKeylock(on); find('.keylock').setAttribute('aria-pressed', String(on)); };
+  find('.keylock').onclick = () => setKeylock(!deck.keylock);
+  // VINYL on: touching the platter scratches. Off: the whole platter nudges like the outer ring.
+  const vinyl = () => find('.vinyl').getAttribute('aria-pressed') === 'true';
+  const setVinyl = on => find('.vinyl').setAttribute('aria-pressed', String(on));
+  find('.vinyl').onclick = () => setVinyl(!vinyl());
   addTarget(`${letter}.play`, `Deck ${number} · Play / pausa`, 'button', toggle);
   addTarget(`${letter}.cue`, `Deck ${number} · Cue`, 'button', recallCue);
-  addTarget(`${letter}.volume`, `Deck ${number} · Volumen`, 'range', value => setRange(find('.volume'), value));
-  addTarget(`${letter}.pitch`, `Deck ${number} · Velocidad`, 'range', value => setRange(find('.pitch'), value * 32 - 16));
-  ['Graves', 'Medios', 'Agudos'].forEach((label, i) => addTarget(`${letter}.eq${i}`, `Deck ${number} · ${label}`, 'range', value => setRange(find(`[data-eq="${i}"]`), fromKnob(value, -24, 0, 12))));
+  addTarget(`${letter}.keylock`, `Deck ${number} · Key lock`, 'button', () => setKeylock(!deck.keylock));
+  rangeTarget(`${letter}.volume`, `Deck ${number} · Volumen`, find('.volume'));
+  rangeTarget(`${letter}.pitch`, `Deck ${number} · Velocidad`, find('.pitch'));
+  rangeTarget(`${letter}.trim`, `Deck ${number} · Trim`, find('.trim'));
+  ['Graves', 'Medios', 'Agudos'].forEach((label, i) => rangeTarget(`${letter}.eq${i}`, `Deck ${number} · ${label}`, find(`[data-eq="${i}"]`)));
   const startLoop = beats => {
     if (!deck.enableLoop(beats)) status(`La pista no tiene duración suficiente para ${beats} beats.`);
   };
@@ -125,10 +168,16 @@ mixer.decks.forEach((deck, index) => {
   }
   find('.loop-off').onclick = () => deck.disableLoop();
   addTarget(`${letter}.loopOff`, `Deck ${number} · Salir del loop`, 'button', () => deck.disableLoop());
-  for (const button of view.querySelectorAll('[data-hotcue]')) {
-    const i = Number(button.dataset.hotcue);
-    button.onclick = event => safe(() => deck.triggerHotCue(i, event.shiftKey));
-    addTarget(`${letter}.hotcue${i}`, `Deck ${number} · Hot cue ${i + 1}`, 'button', () => safe(() => deck.triggerHotCue(i)));
+  for (let i = 0; i < HOT_CUES; i++) addTarget(`${letter}.hotcue${i}`, `Deck ${number} · Hot cue ${i + 1}`, 'button', () => safe(() => deck.triggerHotCue(i)));
+  const pads = createPads({ deck, sampler: mixer.sampler, number, status, loadSample: slot => loadSample(slot) });
+  find('.pad-mode').onchange = event => pads.setMode(event.target.value);
+  // Pads on screen act while pressed, like the hardware; Shift + click is SHIFT + pad.
+  for (const button of view.querySelectorAll('[data-pad]')) {
+    const pad = Number(button.dataset.pad);
+    button.onpointerdown = event => { button.setPointerCapture(event.pointerId); pads.press(pad, event.shiftKey); };
+    button.onpointerup = button.onpointercancel = event => pads.release(pad, event.shiftKey);
+    button.onkeydown = event => { if ((event.key === 'Enter' || event.key === ' ') && !event.repeat) { event.preventDefault(); pads.press(pad, event.shiftKey); } };
+    button.onkeyup = event => { if (event.key === 'Enter' || event.key === ' ') pads.release(pad, event.shiftKey); };
   }
   find('.bpm').onchange = () => {
     const value = Number(find('.bpm').value);
@@ -145,15 +194,11 @@ mixer.decks.forEach((deck, index) => {
   };
   for (const input of findAll('[data-fx]')) {
     bindRange(input, value => deck.setFX(input.dataset.fx, value));
-    addTarget(`${letter}.fx.${input.dataset.fx}`, `Deck ${number} · FX ${input.dataset.fx}`, 'range', value => setRange(input, value));
+    rangeTarget(`${letter}.fx.${input.dataset.fx}`, `Deck ${number} · FX ${input.dataset.fx}`, input);
   }
   const resetFX = () => { for (const input of findAll('[data-fx]')) setRange(input, 0); };
   find('.fx-reset').onclick = resetFX;
   addTarget(`${letter}.fxReset`, `Deck ${number} · Restablecer FX`, 'button', resetFX);
-  for (const button of view.querySelectorAll('[data-pad-loop]')) {
-    const beats = Number(button.dataset.padLoop);
-    button.onclick = () => { if (deck.loop && deck.loopBeats === beats) deck.disableLoop(); else startLoop(beats); };
-  }
   find('.sync').onclick = () => syncTempo(index);
   for (const button of strip.querySelectorAll('[data-assign]')) button.onclick = () => mixer.setAssign(index, button.dataset.assign);
   for (const input of findAll('.knob-slot input')) knob(input);
@@ -161,20 +206,34 @@ mixer.decks.forEach((deck, index) => {
     touch: on => runAction({ deck: index, action: 'touch', on }),
     turn: ticks => jog(index, ticks)
   });
-  deckActions.push({ letter, number, view, strip, find, toggle, recallCue, setCue, startLoop, loadTrack, trackId: () => trackId, fxDepth: 0.5 });
+  deckActions.push({ letter, number, view, strip, find, toggle, recallCue, setCue, startLoop, loadTrack, setKeylock, vinyl, setVinyl, pads, cycleTempoRange, setHeadphones,
+    slip: () => slip, setSlip: on => { slip = on; status(`Deck ${number}: slip ${on ? 'activado' : 'desactivado'}.`); }, trackId: () => trackId, fxDepth: 0.5 });
 });
 knob($('#master'));
+// Sampler pads 5-8 load the track selected in the library into slots 1-4.
+async function loadSample(slot) {
+  const selected = await library.readSelection();
+  if (!selected) { status('Elige primero una pista en la biblioteca para cargarla en el sampler.'); return; }
+  await mixer.sampler.load(slot, new Uint8Array(selected.bytes).buffer, selected.name);
+  status(`Sampler ${slot + 1}: ${selected.name}.`);
+}
+const setMasterCue = on => {
+  if (on && !mixer.cueAvailable) { status('Para escuchar por cascos elige como salida de audio una tarjeta de 4 canales, como la DDJ-SB3.'); return; }
+  mixer.setMasterCue(on); $('#master-cue').setAttribute('aria-pressed', String(on));
+};
+const masterCue = () => $('#master-cue').getAttribute('aria-pressed') === 'true';
+$('#master-cue').onclick = () => setMasterCue(!masterCue());
 library = mountLibrary({
   load: (deck, file, id) => deckActions[deck].loadTrack(file, id),
-  deckCount: () => document.body.classList.contains('decks-2') ? 2 : 4,
+  deckCount: visibleDecks,
   deckState: () => mixer.decks.map((deck, i) => ({ playing: deck.playing, trackId: deckActions[i].trackId() })),
   status
 });
 deckActions.forEach((controls, index) => library.dropTarget(controls.view, index));
 bindRange($('#crossfade'), value => mixer.setCrossfade(value));
 bindRange($('#master'), value => mixer.setMaster(value));
-addTarget('crossfade', 'Mezclador · Crossfader', 'range', value => setRange($('#crossfade'), value));
-addTarget('master', 'Mezclador · Master', 'range', value => setRange($('#master'), value));
+rangeTarget('crossfade', 'Mezclador · Crossfader', $('#crossfade'));
+rangeTarget('master', 'Mezclador · Master', $('#master'));
 for (const [id, target] of targets) $('#target').add(new Option(target.label, id));
 function showMappings() {
   $('#mappings').replaceChildren();
@@ -214,7 +273,7 @@ function syncTempo(index) {
   const reference = mixer.decks.map((item, i) => ({ item, i })).filter(({ i }) => i !== index).sort((a, b) => rank(b) - rank(a))[0];
   if (!reference.item.buffer) { status(`Deck ${controls.number}: carga otra pista para sincronizar.`); return; }
   const percent = (reference.item.bpm * reference.item.rate / deck.bpm - 1) * 100;
-  if (Math.abs(percent) > 16) { status(`Deck ${controls.number}: el tempo del deck ${reference.i + 1} queda fuera del rango ±16 %.`); return; }
+  if (Math.abs(percent) > deck.range * 100) { status(`Deck ${controls.number}: el tempo del deck ${reference.i + 1} queda fuera del rango ±${deck.range * 100} %.`); return; }
   status(`Deck ${controls.number} sincronizado con el deck ${reference.i + 1}.`);
   setRange(controls.find('.pitch'), percent);
 }
@@ -222,6 +281,7 @@ function jog(index, delta) {
   const deck = mixer.decks[index], state = jogs[index], wheel = deckActions[index].find('.platter');
   // Show on screen that the wheel is being turned, whether by mouse or by the hardware jog.
   wheel.classList.add('turning'); clearTimeout(state.turning); state.turning = setTimeout(() => wheel.classList.remove('turning'), 150);
+  if (deck.scratching) { deck.scratchMove(delta * JOG_SECONDS_PER_TICK); return; }
   if (!deck.playing) { deck.scrub(delta * JOG_SECONDS_PER_TICK); return; }
   deck.bend(clamp(delta * 0.03, -0.3, 0.3)); clearTimeout(state.timer);
   state.timer = setTimeout(() => deck.bend(0), 80);
@@ -237,17 +297,26 @@ function runAction({ deck: index, action, ...detail }) {
     case 'setCue': controls.setCue(); break;
     case 'sync': syncTempo(index); break;
     case 'autoLoop': if (deck.loop) deck.disableLoop(); else controls.startLoop(deck.loopBeats); break;
-    case 'loopOff': deck.disableLoop(); break;
     case 'loopHalve': case 'loopDouble': {
       const beats = nextLoopSize(deck.loopBeats, action === 'loopHalve' ? -1 : 1);
       if (deck.loop) controls.startLoop(beats); else deck.loopBeats = beats;
       status(`Deck ${controls.number}: loop de ${beats} beats.`); break;
     }
-    case 'loop': if (deck.loop && deck.loopBeats === detail.beats) deck.disableLoop(); else controls.startLoop(detail.beats); break;
-    case 'hotcue': run(`hotcue${detail.index}`)(); break;
-    case 'clearHotcue': safe(() => deck.triggerHotCue(detail.index, true)); break;
-    case 'range': run(detail.target)(detail.value); break;
-    case 'filter': run('fx.filter')(detail.value); break;
+    case 'reloop': safe(async () => { if (!await deck.reloop()) status(`Deck ${controls.number}: todavía no hay un loop al que volver.`); }); break;
+    case 'syncOff': setRange(controls.find('.pitch'), 0); status(`Deck ${controls.number}: tempo a 0 %.`); break;
+    case 'tempoRange': controls.cycleTempoRange(); break;
+    case 'slip': controls.setSlip(!controls.slip()); break;
+    case 'headphones': controls.setHeadphones(!deck.headphones); break;
+    case 'padMode': controls.pads.setMode(detail.mode); break;
+    case 'pad': if (detail.on) controls.pads.press(detail.pad, detail.shift, detail.mode); else controls.pads.release(detail.pad, detail.shift, detail.mode); break;
+    case 'echoBeats': deck.setEchoBeats(deck.echoBeats * detail.factor); status(`Deck ${controls.number}: echo de ${deck.echoBeats < 1 ? `1/${1 / deck.echoBeats}` : deck.echoBeats} beat.`); break;
+    case 'range': { const id = `${controls.letter}.${detail.target}`; if (takeover(id, detail.value)) run(detail.target)(detail.value); break; }
+    case 'filter': { const position = (detail.value + 1) / 2; if (takeover(`${controls.letter}.fx.filter`, position)) run('fx.filter')(position); break; }
+    case 'stutter': safe(async () => { await deck.seek(deck.cue); await deck.play(); }); break;
+    case 'loopIn': deck.markLoopIn(); status(`Deck ${controls.number}: inicio de loop marcado.`); break;
+    case 'loopOut': if (!deck.markLoopOut()) status(`Deck ${controls.number}: marca antes el inicio del loop con SHIFT + 1/2X.`); break;
+    case 'keylock': controls.setKeylock(!deck.keylock); break;
+    case 'vinyl': controls.setVinyl(!controls.vinyl()); break;
     case 'toggleFX': {
       const on = !fxOn(index).includes(detail.fx);
       run(`fx.${detail.fx}`)(on ? Math.max(controls.fxDepth, 0.05) : 0);
@@ -257,23 +326,41 @@ function runAction({ deck: index, action, ...detail }) {
     case 'fxReset': run('fxReset')(); break;
     case 'load': if (library.hasSelection()) library.loadInto(index); else controls.find('.load').click(); break;
     case 'browse': library.moveSelection(detail.delta); break;
-    case 'touch':
-      controls.find('.platter').classList.toggle('held', detail.on);
-      if (detail.on && deck.playing) { jogs[index].resume = true; deck.pause(); }
-      else if (!detail.on && jogs[index].resume) { jogs[index].resume = false; safe(() => deck.play()); }
+    case 'browseBack': library.moveSelection(-Infinity); break;
+    case 'masterCue': setMasterCue(!masterCue()); break;
+    case 'browsePress': {
+      // Pressing the browse knob loads the selection into the first visible deck that is not playing.
+      const free = mixer.decks.findIndex((item, i) => i < visibleDecks() && !item.playing);
+      if (!library.hasSelection()) status('Gira el navegador para elegir una pista de la biblioteca.');
+      else if (free < 0) status('Todos los decks están sonando. Pausa uno para cargar la pista.');
+      else library.loadInto(free);
       break;
+    }
+    case 'touch': {
+      const scratching = detail.on && controls.vinyl(), state = jogs[index];
+      controls.find('.platter').classList.toggle('held', scratching);
+      // SLIP: after a scratch the track continues where it would have been.
+      if (scratching && controls.slip() && deck.playing) state.slip = { position: deck.position, time: mixer.context.currentTime, speed: deck.speed };
+      deck.scratch(scratching);
+      if (!detail.on && state.slip) { const saved = state.slip; state.slip = null; safe(() => deck.seek(saved.position + (mixer.context.currentTime - saved.time) * saved.speed)); }
+      break;
+    }
     case 'jog': jog(index, detail.delta); break;
     case 'search': if (deck.playing) safe(() => deck.seek(deck.position + detail.delta * 0.25)); else deck.scrub(detail.delta * 0.25); break;
-    case 'crossfade': targets.get('crossfade').run(detail.value); break;
+    case 'crossfade': if (takeover('crossfade', detail.value)) targets.get('crossfade').run(detail.value); break;
   }
 }
 function sendLed(message) { try { output?.send(message); } catch { output = null; } }
 function updateLeds() {
   if (!profile || !output) return;
-  const state = mixer.decks.map((deck, i) => ({ loaded: Boolean(deck.buffer), playing: deck.playing, loop: deck.loop ? deck.loopBeats : null,
-    hotCues: deck.hotCues.map(cue => cue !== null), fxOn: fxOn(i),
-    level: Number(deckActions[i].strip.querySelector('.vu').style.getPropertyValue('--level')) || 0 }));
-  for (const message of profile.leds(state)) {
+  const state = mixer.decks.map((deck, i) => {
+    const controls = deckActions[i];
+    return { loaded: Boolean(deck.buffer), playing: deck.playing, loop: deck.loop ? loopBeats(deck) ?? 0 : null,
+      padMode: controls.pads.mode, pads: [0, 1, 2, 3, 4, 5, 6, 7].map(controls.pads.lit), fxOn: fxOn(i), keylock: deck.keylock,
+      vinyl: controls.vinyl(), slip: controls.slip(), headphones: deck.headphones,
+      level: Number(controls.strip.querySelector('.vu').style.getPropertyValue('--level')) || 0 };
+  });
+  for (const message of profile.leds(state, { masterCue: masterCue() })) {
     const key = `${message[0]}:${message[1]}`;
     if (leds.get(key) !== message[2]) { leds.set(key, message[2]); sendLed(message); }
   }
@@ -284,7 +371,7 @@ function ledsOff() {
 }
 function selectDevice() {
   if (!access) return;
-  cancelLearning(); ledsOff();
+  cancelLearning(); ledsOff(); hardware.clear();
   const selected = access.inputs.get($('#device').value);
   profile = selected ? profileFor(selected.name) : null;
   output = profile ? [...access.outputs.values()].find(port => port.name === selected.name && port.state === 'connected') ?? null : null;
@@ -339,12 +426,13 @@ function animate() {
     setText(view.querySelector('.remaining'), `−${formatTime(deck.duration - deck.position)}`);
     waveform(view, deck);
     view.classList.toggle('is-playing', deck.playing); view.classList.toggle('is-loaded', Boolean(deck.buffer));
-    setText(view.querySelector('.loop-status'), deck.loop ? `Loop de ${deck.loopBeats} beats activo` : '');
-    for (const button of view.querySelectorAll('[data-loop]')) button.classList.toggle('active', Boolean(deck.loop) && Number(button.dataset.loop) === deck.loopBeats);
-    for (const button of view.querySelectorAll('[data-pad-loop]')) button.classList.toggle('active', Boolean(deck.loop) && Number(button.dataset.padLoop) === deck.loopBeats);
-    for (const button of view.querySelectorAll('[data-hotcue]')) {
-      const cue = deck.hotCues[Number(button.dataset.hotcue)];
-      button.classList.toggle('saved', cue !== null); setText(button.querySelector('small'), cue === null ? 'Hot cue' : formatTime(cue));
+    setText(view.querySelector('.loop-status'), deck.loop ? (deck.loop.manual ? 'Loop manual activo' : `Loop de ${deck.loopBeats} beats activo`) : '');
+    for (const button of view.querySelectorAll('[data-loop]')) button.classList.toggle('active', Number(button.dataset.loop) === loopBeats(deck));
+    const { pads } = deckActions[i], select = view.querySelector('.pad-mode');
+    if (select.value !== pads.mode) select.value = pads.mode;
+    for (const button of view.querySelectorAll('[data-pad]')) {
+      const pad = Number(button.dataset.pad), [title, detail] = pads.label(pad);
+      setText(button.querySelector('b'), title); setText(button.querySelector('small'), detail); button.classList.toggle('saved', pads.lit(pad));
     }
     for (const button of strip.querySelectorAll('[data-assign]')) setAttr(button, 'aria-pressed', String(mixer.assign[i] === button.dataset.assign));
     // Platters turn at 33⅓ rpm with the track position.
@@ -378,4 +466,24 @@ function showDecks(count) {
 }
 for (const button of document.querySelectorAll('[data-decks]')) button.onclick = () => showDecks(Number(button.dataset.decks));
 try { showDecks(localStorage.getItem('pulso.decks') === '2' ? 2 : 4); } catch { showDecks(4); }
+// Audio output. The DDJ-SB3 sound card has 4 outputs (master on 1-2, headphones on 3-4), so choosing it enables CUE.
+async function listOutputs() {
+  let saved = ''; try { saved = localStorage.getItem('pulso.output') || ''; } catch {}
+  const devices = (await navigator.mediaDevices?.enumerateDevices?.() ?? [])
+    .filter(device => device.kind === 'audiooutput' && !['default', 'communications'].includes(device.deviceId));
+  const select = $('#output'), current = select.value;
+  select.replaceChildren(new Option('Predeterminada de Windows', ''), ...devices.map(device => new Option(device.label || 'Salida de audio', device.deviceId)));
+  const wanted = devices.find(device => device.label === saved)?.deviceId ?? (devices.some(device => device.deviceId === current) ? current : '');
+  if (wanted !== mixer.outputId) { select.value = wanted; await chooseOutput(false); } else select.value = wanted;
+}
+async function chooseOutput(remember = true) {
+  const select = $('#output'), label = select.selectedOptions[0]?.text ?? '';
+  await mixer.setOutput(select.value);
+  if (remember) try { localStorage.setItem('pulso.output', select.value ? label : ''); } catch {}
+  if (!mixer.cueAvailable) { for (const controls of deckActions) controls.setHeadphones(false); setMasterCue(false); }
+  status(`Salida de audio: ${label}. ${mixer.cueAvailable ? 'Master por las salidas 1-2 y cascos (CUE) por 3-4.' : 'Tiene 2 canales: los cascos (CUE) necesitan una salida de 4 canales como la DDJ-SB3.'}`);
+}
+$('#output').onchange = () => safe(chooseOutput);
+if (navigator.mediaDevices) navigator.mediaDevices.ondevicechange = () => safe(listOutputs);
+safe(listOutputs);
 mountAssistant(mixer, status);

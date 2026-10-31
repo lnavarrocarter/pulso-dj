@@ -36,7 +36,9 @@ test('reproducibilidad, parámetros inválidos y variaciones del patrón', () =>
 test('cámara solo habilitada explícitamente; micrófono y permisos desconocidos rechazados', () => {
   assert.equal(checkPermission('media', { mediaType: 'video' }, false), false);
   assert.equal(checkPermission('media', { mediaType: 'video' }, true), true);
-  assert.equal(checkPermission('media', { mediaType: 'audio' }, true), false);
+  // The audio check only lets the app name audio outputs; the microphone itself is still refused.
+  assert.equal(checkPermission('media', { mediaType: 'audio' }, false), true);
+  assert.equal(requestPermission('media', { mediaTypes: ['audio'] }, true), false);
   assert.equal(requestPermission('media', { mediaTypes: ['video'] }, true), true);
   assert.equal(requestPermission('media', { mediaTypes: ['video', 'audio'] }, true), false);
   assert.equal(requestPermission('media', {}, true), false); assert.equal(checkPermission('geolocation', {}, true), false);

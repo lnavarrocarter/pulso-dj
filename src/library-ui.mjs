@@ -123,6 +123,11 @@ export function mountLibrary({ load, deckCount, deckState, status }) {
   return {
     moveSelection, loadInto, addFiles, render,
     hasSelection: () => entries.some(entry => entry.id === selectedId),
+    // The selected track's audio, for the sampler; null without a selection.
+    async readSelection() {
+      const entry = entries.find(item => item.id === selectedId);
+      return entry ? { name: entry.title, bytes: (await api.read(entry.id)).bytes } : null;
+    },
     dropTarget(element, deck) {
       element.addEventListener('dragover', event => { if (event.dataTransfer.types.includes('application/x-pulso-track')) { event.preventDefault(); element.classList.add('drop'); } });
       element.addEventListener('dragleave', () => element.classList.remove('drop'));

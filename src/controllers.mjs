@@ -8,10 +8,19 @@ export function nextLoopSize(beats, direction) {
   return LOOP_SIZES[Math.min(LOOP_SIZES.length - 1, Math.max(0, (index < 0 ? 2 : index) + direction))];
 }
 // The FX buttons switch an effect on or off; the FX knob sets the depth of the effects that are on.
-// The SB3 filter knob is bipolar: left of centre closes the low-pass, right of centre would be a high-pass Pulso lacks.
-export function filterAmount(value) { return value < 0.48 ? Math.min(1, (0.48 - value) / 0.48) : 0; }
-const deckButtons = { 11: 'play', 12: 'cue', 72: 'setCue', 88: 'sync', 20: 'autoLoop', 80: 'loopOff', 18: 'loopHalve', 19: 'loopDouble' };
-const deckRanges = { 0: 'pitch', 7: 'eq2', 11: 'eq1', 15: 'eq0', 19: 'volume' };
+// The SB3 filter knob is bipolar: −1 closes the low-pass, 1 the high-pass; a small dead zone keeps the centre detent open.
+export function filterAmount(value) {
+  const side = value * 2 - 1;
+  return Math.abs(side) < 0.04 ? 0 : Math.sign(side) * Math.min(1, (Math.abs(side) - 0.04) / 0.96);
+}
+const deckButtons = { 11: 'play', 12: 'cue', 72: 'setCue', 71: 'stutter', 88: 'sync', 92: 'syncOff', 20: 'autoLoop', 80: 'reloop',
+  18: 'loopHalve', 19: 'loopDouble', 97: 'loopIn', 98: 'loopOut', 26: 'keylock', 96: 'tempoRange', 23: 'vinyl', 64: 'slip', 84: 'headphones', 104: 'headphones' };
+// Pad modes in the order of their note ranges: each mode uses 16 notes on the pad channel, 8 pads and then the same
+// 8 with SHIFT. The mode buttons (SHIFT selects the second mode printed under each) send these notes on the deck channel.
+export const PAD_MODES = ['hotcue', 'fxfade', 'scratch', 'sampler', 'beatjump', 'roll', 'slicer', 'trans'];
+const padModeButtons = { 27: 0, 30: 1, 32: 2, 34: 3, 105: 4, 107: 5, 109: 6, 110: 7 };
+const padModeLeds = [27, 30, 32, 34];
+const deckRanges = { 0: 'pitch', 4: 'trim', 7: 'eq2', 11: 'eq1', 15: 'eq0', 19: 'volume' };
 // Channels 1-4 carry decks 1-4: the DECK 3/4 buttons switch which channel each side of the hardware sends on.
 export function createDDJSB3() {
   const msb = new Map();
@@ -42,23 +51,26 @@ export function createDDJSB3() {
       }
       if (kind === 0x90 || kind === 0x80) {
         if (channel <= 3) {
-          if (number === 53 || number === 54) return [{ deck: channel, action: 'touch', on: pressed }];
+          if (number === 53 || number === 54 || number === 103) return [{ deck: channel, action: 'touch', on: pressed }];
+          if (pressed && padModeButtons[number] !== undefined) return [{ deck: channel, action: 'padMode', mode: PAD_MODES[padModeButtons[number]] }];
           return pressed && deckButtons[number] ? [{ deck: channel, action: deckButtons[number] }] : [];
         }
-        if (!pressed) return [];
+        // Pads report release too: rolls, censor, FX FADE and TRANS last while the pad is held.
         if (channel >= 7 && channel <= 10) {
-          const deck = channel - 7;
-          if (number <= 3) return [{ deck, action: 'hotcue', index: number }];
-          if (number <= 7) return [{ deck, action: 'loop', beats: LOOP_SIZES[number - 4] }];
-          if (number >= 8 && number <= 11) return [{ deck, action: 'clearHotcue', index: number - 8 }];
-          return [];
+          return [{ deck: channel - 7, action: 'pad', mode: PAD_MODES[number >> 4], pad: number & 7, shift: Boolean(number & 8), on: pressed }];
         }
+        if (!pressed) return [];
         if (channel === 4 || channel === 5) {
           if (number >= 71 && number <= 73) return [{ deck: active[channel - 4], action: 'toggleFX', fx: FX[number - 71] }];
-          if (number >= 99 && number <= 101) return [{ deck: active[channel - 4], action: 'fxReset' }];
+          // SHIFT + FX 1 / 2 / 3: SELECT (all effects off), BEAT ◄ and BEAT ► (echo time).
+          if (number === 99) return [{ deck: active[channel - 4], action: 'fxReset' }];
+          if (number === 100 || number === 101) return [{ deck: active[channel - 4], action: 'echoBeats', factor: number === 100 ? 0.5 : 2 }];
           return [];
         }
         if (channel === 6 && number >= 70 && number <= 73) return [{ deck: number - 70, action: 'load' }];
+        if (channel === 6 && number === 65) return [{ action: 'browsePress' }];
+        if (channel === 6 && number === 66) return [{ action: 'browseBack' }];
+        if (channel === 6 && (number === 91 || number === 120)) return [{ action: 'masterCue' }];
         return [];
       }
       if (kind !== 0xb0) return [];
@@ -83,18 +95,20 @@ export function createDDJSB3() {
       }
       return [];
     },
-    // decks: [{ loaded, playing, loop: beats|null, hotCues: [bool×4], fxOn: [names], level: 0-1 }].
-    // Returns the note-on messages for every LED and the CC 2 value for each channel level meter.
-    leds(decks) {
-      const messages = [];
+    // decks: [{ loaded, playing, loop: beats|null, padMode, pads: [bool×8], fxOn: [names], keylock, vinyl, slip, headphones, level: 0-1 }];
+    // mixer: { masterCue }. Returns the note-on messages for every LED and the CC 2 value for each channel level meter.
+    leds(decks, mixer = {}) {
+      const messages = [], on = flag => flag ? 127 : 0;
       decks.forEach((deck, index) => {
-        const on = flag => flag ? 127 : 0;
+        const mode = Math.max(0, PAD_MODES.indexOf(deck.padMode));
         messages.push([0x90 + index, 11, on(deck.playing)], [0x90 + index, 12, on(deck.loaded && !deck.playing)],
-          [0x90 + index, 20, on(deck.loop !== null)], [0x90 + index, 27, 127]);
-        deck.hotCues.forEach((saved, pad) => messages.push([0x97 + index, pad, on(saved)]));
-        LOOP_SIZES.slice(0, 4).forEach((beats, pad) => messages.push([0x97 + index, pad + 4, on(deck.loop === beats)]));
+          [0x90 + index, 20, on(deck.loop !== null)], [0x90 + index, 26, on(deck.keylock)], [0x90 + index, 23, on(deck.vinyl)],
+          [0x90 + index, 64, on(deck.slip)], [0x90 + index, 84, on(deck.headphones)]);
+        padModeLeds.forEach((note, button) => messages.push([0x90 + index, note, on(button === mode % 4)]));
+        (deck.pads ?? []).forEach((lit, pad) => messages.push([0x97 + index, mode * 16 + pad, on(lit)]));
         messages.push([0xb0 + index, 2, Math.floor((deck.level ?? 0) * 117)]); // 117 keeps the top LED for clipping, as in Mixxx
       });
+      messages.push([0x96, 91, on(mixer.masterCue)]);
       // The FX buttons belong to a side of the hardware, so they show the effect of the deck active there.
       active.forEach((index, side) => FX.forEach((name, button) => messages.push([0x94 + side, 71 + button, decks[index]?.fxOn?.includes(name) ? 127 : 0])));
       return messages;

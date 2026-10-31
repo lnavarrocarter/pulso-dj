@@ -65,6 +65,8 @@ select { background: var(--well); color: var(--ink); border: 1px solid var(--lin
 .deck-controls { grid-area: controls; display: grid; gap: 8px; min-width: 0; }
 .tempo { grid-area: tempo; display: grid; justify-items: center; gap: 4px; font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
 .pitch-value { font-size: 11px; color: var(--ink); }
+.mode { width: 100%; padding: 3px 4px; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+.mode[aria-pressed="true"] { border-color: var(--led); color: var(--led); }
 
 /* Jog wheel: brushed ring, grooved record, deck-coloured centre label and position mark. */
 .platter {
@@ -105,8 +107,8 @@ select { background: var(--well); color: var(--ink); border: 1px solid var(--lin
 .pads .saved { border-color: var(--led); background: color-mix(in srgb, var(--led) 22%, var(--rubber)); box-shadow: inset 0 -2px var(--led), 0 0 10px color-mix(in srgb, var(--led) 25%, transparent); }
 .pads .saved small { color: var(--ink); }
 .pads .active small { color: #15181c; }
-.pad-loop { background: linear-gradient(#25292e, #1f2226) !important; }
-.pad-loop.active { background: var(--led) !important; }
+.pad-mode-box { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+.pad-mode { flex: 1; min-width: 0; padding: 3px 6px; font-size: 11px; }
 .fx-row { display: flex; align-items: end; gap: 10px; }
 .fx-row .fx-reset { margin-left: auto; font-size: 11px; }
 
@@ -148,6 +150,9 @@ input.pitch::-webkit-slider-thumb, input.volume::-webkit-slider-thumb {
 .master-knob { display: flex; flex-direction: column-reverse; align-items: center; gap: 3px; }
 .master-knob label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
 .master-knob .knob { --size: 42px; --led: var(--cap); }
+.master-knob .mode { --led: #ffb238; width: auto; margin-top: 4px; }
+.output-chip { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+.output-chip select { max-width: 190px; }
 .master-meter { display: grid; gap: 4px; min-width: 0; }
 #spectrum { width: 100%; height: 30px; }
 #level { font-size: 11px; color: var(--dim); }

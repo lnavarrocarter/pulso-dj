@@ -15,7 +15,7 @@ app.whenReady().then(async () => {
       const { Mixer, Deck } = await import('./audio.mjs');
       const check = (condition, message) => { if (!condition) throw new Error(message); };
       check(document.querySelectorAll('.deck').length === 4 && document.querySelectorAll('.strip').length === 4, 'Four deck views and mixer strips');
-      check(document.querySelector('#target').options.length === 90, 'MIDI targets');
+      check(document.querySelector('#target').options.length === 114, 'MIDI targets');
       check(window.desktop && !window.require, 'Isolated preload');
       const mixer = new Mixer(); mixer.setMaster(0);
       const deck = mixer.decks[0];
@@ -51,22 +51,52 @@ app.whenReady().then(async () => {
       deck.bend(0.2); check(Math.abs(deck.speed-1.2)<1e-9 && deck.rate===1,'Jog bend keeps tempo'); deck.bend(0);
       deck.setFX('drive',1); check(deck.shaper.curve.length===2048,'Drive curve');
       deck.setFX('drive',0); check(deck.shaper.curve===null,'Drive reset');
-      const renderFX = async effect => {
+      const renderFX = async (effect, value = 1, frequency = 8000) => {
         const offline = new OfflineAudioContext(2,48000,48000), testDeck = new Deck(offline,offline.destination);
         const buffer=offline.createBuffer(1,48000,48000), samples=buffer.getChannelData(0);
-        if(effect==='filter'||effect==='baseline') { for(let i=0;i<48000;i++) samples[i]=Math.sin(i*2*Math.PI*8000/48000)*0.1; }
+        if(effect==='filter'||effect==='baseline') { for(let i=0;i<48000;i++) samples[i]=Math.sin(i*2*Math.PI*frequency/48000)*0.1; }
         else samples[9600]=0.5;
-        if(effect!=='baseline') testDeck.setFX(effect,1);
-        const source=offline.createBufferSource(); source.buffer=buffer; source.connect(testDeck.filters[0]); source.start();
+        if(effect!=='baseline') testDeck.setFX(effect,value);
+        const source=offline.createBufferSource(); source.buffer=buffer; source.connect(testDeck.trim); source.start();
         const rendered=await offline.startRendering(); return rendered.getChannelData(0);
       };
       const energy=(samples,from=12000,to=48000)=>{let sum=0; for(let i=from;i<to;i++)sum+=samples[i]*samples[i]; return sum;};
       check(energy(await renderFX('echo'),20000)>0.001,'Echo produces delayed audio');
       check(energy(await renderFX('reverb'),12000)>0.000001,'Reverb produces tail');
-      check(energy(await renderFX('filter'))<energy(await renderFX('baseline'))*0.02,'Filter attenuates high frequencies');
+      check(energy(await renderFX('filter',-1))<energy(await renderFX('baseline'))*0.02,'Low-pass attenuates high frequencies');
+      check(energy(await renderFX('filter',1,100))<energy(await renderFX('baseline',0,100))*0.02,'High-pass attenuates low frequencies');
+      // The deck engine itself, rendered offline: key lock keeps the pitch, scratching plays the record by hand.
+      const renderDeck = async (seconds, setup) => {
+        const offline = new OfflineAudioContext(2, 48000 * seconds, 48000);
+        const testDeck = new Deck(offline, offline.destination, offline.audioWorklet.addModule('./deck-worklet.mjs'));
+        await testDeck.load(bytes); await setup(testDeck);
+        // Offline rendering can outrun the messages to the audio thread: pause it briefly so they arrive first.
+        offline.suspend(256 / 48000).then(() => new Promise(resolve => setTimeout(resolve, 50))).then(() => offline.resume());
+        const samples = (await offline.startRendering()).getChannelData(0);
+        await new Promise(resolve => setTimeout(resolve, 50));
+        return { samples, deck: testDeck };
+      };
+      const pitch = samples => { let crossings = 0; for (let i = 4800; i < samples.length; i++) if (samples[i-1] < 0 && samples[i] >= 0) crossings++; return crossings / ((samples.length - 4800) / 48000); };
+      const varispeed = await renderDeck(0.5, async d => { d.setRate(1.16); await d.play(); });
+      const locked = await renderDeck(0.5, async d => { d.setRate(1.16); d.setKeylock(true); await d.play(); });
+      check(Math.abs(pitch(varispeed.samples) - 440 * 1.16) < 8, 'Varispeed raises pitch: ' + pitch(varispeed.samples));
+      check(Math.abs(pitch(locked.samples) - 440) < 8, 'Key lock keeps pitch: ' + pitch(locked.samples));
+      check(Math.abs(locked.deck.position - 0.58) < 0.05, 'Key lock keeps tempo: ' + locked.deck.position);
+      const scratched = await renderDeck(0.4, async d => { await d.seek(0.5); d.scratch(true); d.scratchMove(-0.2); });
+      check(energy(scratched.samples, 0, 9600) > 1 && Math.abs(scratched.deck.position - 0.3) < 0.02, 'Scratch plays backwards to the hand position: ' + scratched.deck.position);
+      // Pads: a hot cue beyond the first four, a roll that resumes where the track would be (slip), the sampler.
+      const { createPads } = await import('./pads.mjs');
+      const pads = createPads({ deck, sampler: mixer.sampler, number: 1, status: () => {}, loadSample: async () => {} });
+      await deck.seek(0.2); await pads.press(6); pads.release(6); check(Math.abs(deck.hotCues[6]-0.2)<0.01,'Hot cue 7 from a pad');
+      pads.setMode('roll'); deck.setBpm(120); await deck.seek(0.1); await deck.play(); await pads.press(3);
+      await new Promise(resolve => setTimeout(resolve,300)); check(deck.loop?.roll && deck.position < 0.36,'Roll loops while held');
+      pads.release(3); await new Promise(resolve => setTimeout(resolve,50));
+      check(!deck.loop && deck.position > 0.4,'Roll release continues where the track would be: '+deck.position); deck.pause();
+      await mixer.sampler.load(0, bytes, 'Prueba'); check(mixer.sampler.play(0) && mixer.sampler.playing(0),'Sampler plays a slot');
+      mixer.sampler.eject(0); check(mixer.sampler.slots[0]===null,'Sampler eject');
       deck.setEQ(0,50); check(deck.filters[0].gain.value<=12,'EQ bounds');
       await mixer.context.close();
-      return { decks:4, midiTargets:90, decode:true, transport:true, looping:true, hotCues:true, echo:true, reverb:true, filter:true, drive:true, isolated:true };
+      return { decks:4, midiTargets:114, decode:true, transport:true, looping:true, hotCues:true, echo:true, reverb:true, filter:true, highPass:true, drive:true, keylock:true, scratch:true, pads:true, sampler:true, isolated:true };
     })()`);
     if (errors.length) throw new Error(errors.join('\n'));
     await writeFile(path.join(__dirname, '../preview.png'), (await window.webContents.capturePage()).toPNG());
