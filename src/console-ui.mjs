@@ -75,6 +75,7 @@ export function platter(element, { touch, turn }) {
 // Peak level → 0-1 on a −48…0 dBFS scale, which is how hardware LED ladders read.
 export function setMeter(element, peak) {
   const level = peak > 0 ? Math.min(1, Math.max(0, (20 * Math.log10(peak) + 48) / 48)) : 0;
+  if (element.style.getPropertyValue('--level') === level.toFixed(3)) return;
   element.style.setProperty('--level', level.toFixed(3));
   element.setAttribute('aria-valuenow', level.toFixed(2));
 }

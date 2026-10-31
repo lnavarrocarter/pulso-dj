@@ -36,7 +36,14 @@ const jogs = mixer.decks.map(() => ({ resume: false, timer: 0 }));
 function addTarget(id, label, kind, run) { targets.set(id, { label, kind, run }); }
 function bindRange(element, callback) { element.addEventListener('input', () => callback(Number(element.value))); }
 function setRange(element, value) { element.value = value; element.dispatchEvent(new Event('input')); }
+// Writes to the page only when a value changes, so the 60 fps loop costs little while nothing moves.
+function setText(element, text) { if (element.textContent !== text) element.textContent = text; }
+function setAttr(element, name, value) { if (element.getAttribute(name) !== value) element.setAttribute(name, value); }
 function waveform(view, deck) {
+  // Redraw only when another track is loaded, the playhead moves a pixel or the loop changes.
+  const key = deck.buffer ? `${Math.round(deck.position / deck.duration * 800)}:${deck.loop?.start}:${deck.loop?.end}` : '';
+  if (view.drawnBuffer === deck.buffer && view.drawnKey === key) return;
+  view.drawnBuffer = deck.buffer; view.drawnKey = key;
   const canvas = view.querySelector('canvas'), ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.strokeStyle = '#273447'; ctx.beginPath(); ctx.moveTo(0, 55); ctx.lineTo(800, 55); ctx.stroke();
@@ -320,45 +327,49 @@ document.addEventListener('keydown', event => {
   if (action) { event.preventDefault(); targets.get(action).run(); }
 });
 const samples = new Float32Array(mixer.analyser.fftSize);
-setInterval(() => {
+const frequency = new Uint8Array(mixer.analyser.frequencyBinCount);
+function meters() {
+  mixer.decks.forEach((deck, i) => setMeter(deckActions[i].strip.querySelector('.vu'), deck.level));
+}
+// Every frame (60 fps): time, waveform, platters, pads, meters and controller LEDs follow the audio.
+function animate() {
   mixer.decks.forEach((deck, i) => {
     const { view, strip } = deckActions[i];
-    view.querySelector('.elapsed').textContent = formatTime(deck.position);
-    view.querySelector('.remaining').textContent = `−${formatTime(deck.duration - deck.position)}`;
+    setText(view.querySelector('.elapsed'), formatTime(deck.position));
+    setText(view.querySelector('.remaining'), `−${formatTime(deck.duration - deck.position)}`);
     waveform(view, deck);
     view.classList.toggle('is-playing', deck.playing); view.classList.toggle('is-loaded', Boolean(deck.buffer));
-    view.querySelector('.loop-status').textContent = deck.loop ? `Loop de ${deck.loopBeats} beats activo` : '';
+    setText(view.querySelector('.loop-status'), deck.loop ? `Loop de ${deck.loopBeats} beats activo` : '');
     for (const button of view.querySelectorAll('[data-loop]')) button.classList.toggle('active', Boolean(deck.loop) && Number(button.dataset.loop) === deck.loopBeats);
     for (const button of view.querySelectorAll('[data-pad-loop]')) button.classList.toggle('active', Boolean(deck.loop) && Number(button.dataset.padLoop) === deck.loopBeats);
     for (const button of view.querySelectorAll('[data-hotcue]')) {
       const cue = deck.hotCues[Number(button.dataset.hotcue)];
-      button.classList.toggle('saved', cue !== null); button.querySelector('small').textContent = cue === null ? 'Hot cue' : formatTime(cue);
+      button.classList.toggle('saved', cue !== null); setText(button.querySelector('small'), cue === null ? 'Hot cue' : formatTime(cue));
     }
-    for (const button of strip.querySelectorAll('[data-assign]')) button.setAttribute('aria-pressed', String(mixer.assign[i] === button.dataset.assign));
+    for (const button of strip.querySelectorAll('[data-assign]')) setAttr(button, 'aria-pressed', String(mixer.assign[i] === button.dataset.assign));
+    // Platters turn at 33⅓ rpm with the track position.
+    const disc = view.querySelector('.platter-disc'), spin = `${(deck.position / 1.8 * 360) % 360}deg`;
+    if (disc.style.getPropertyValue('--spin') !== spin) disc.style.setProperty('--spin', spin);
+    setAttr(view.querySelector('.platter'), 'aria-valuenow', String(deck.duration ? Math.round(deck.position / deck.duration * 100) : 0));
   });
+  meters();
   mixer.analyser.getFloatTimeDomainData(samples);
   let peak = 0; for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
-  setMeter($('#meter'), peak); $('#level').textContent = peak > 0.0001 ? `${(20 * Math.log10(peak)).toFixed(1)} dBFS` : '−∞ dBFS';
-  $('#audio-status').textContent = `${mixer.context.state === 'running' ? 'Audio activo' : 'Audio en espera'} · ${mixer.context.sampleRate / 1000} kHz`;
-  updateLeds();
-}, 100);
-window.addEventListener('beforeunload', ledsOff);
-const frequency = new Uint8Array(mixer.analyser.frequencyBinCount);
-// Per-frame visuals: platters turn at 33⅓ rpm with the track position, channel meters follow the audio.
-function animate() {
+  setMeter($('#meter'), peak); setText($('#level'), peak > 0.0001 ? `${(20 * Math.log10(peak)).toFixed(1)} dBFS` : '−∞ dBFS');
   const canvas = $('#spectrum'), ctx = canvas.getContext('2d');
   mixer.analyser.getByteFrequencyData(frequency); ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#c9ced6';
   for (let i = 0; i < 40; i++) { const height = frequency[i * 3] / 255 * 40; ctx.fillRect(i * 6, 40 - height, 4, Math.max(1, height)); }
-  mixer.decks.forEach((deck, i) => {
-    const { view, strip } = deckActions[i];
-    view.querySelector('.platter-disc').style.setProperty('--spin', `${(deck.position / 1.8 * 360) % 360}deg`);
-    view.querySelector('.platter').setAttribute('aria-valuenow', deck.duration ? Math.round(deck.position / deck.duration * 100) : 0);
-    setMeter(strip.querySelector('.vu'), deck.level);
-  });
+  updateLeds(); // sends only the LEDs whose value changed
   requestAnimationFrame(animate);
 }
 requestAnimationFrame(animate);
+// Animation frames stop while the window is minimised; the controller's LEDs and meters keep following the audio.
+setInterval(() => {
+  setText($('#audio-status'), `${mixer.context.state === 'running' ? 'Audio activo' : 'Audio en espera'} · ${mixer.context.sampleRate / 1000} kHz`);
+  if (document.hidden) { meters(); updateLeds(); }
+}, 250);
+window.addEventListener('beforeunload', ledsOff);
 function showDecks(count) {
   document.body.classList.toggle('decks-4', count === 4); document.body.classList.toggle('decks-2', count === 2);
   for (const button of document.querySelectorAll('[data-decks]')) button.setAttribute('aria-pressed', String(Number(button.dataset.decks) === count));
