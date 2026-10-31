@@ -1,4 +1,5 @@
 import { clamp, crossfade, loopRegion, loopPosition } from './core.mjs';
+import { detectTempo } from './analysis.mjs';
 const PEAKS = 400; // waveform overview resolution
 export const HOT_CUES = 8;
 function overview(samples) {
@@ -27,6 +28,8 @@ export class Deck {
     this.cue = 0;
     this.hotCues = Array(HOT_CUES).fill(null);
     this.bpm = 120;
+    this.beatOffset = 0; // time of a beat, in seconds; with bpm it gives the beat grid
+    this.tempoConfidence = 0; // 0-1, from the tempo analysis
     this.range = 0.16; // tempo fader range, ±16 %
     this.loop = null;
     this.lastLoop = null;
@@ -116,6 +119,9 @@ export class Deck {
     this.hotCues = Array(HOT_CUES).fill(null); this.lastLoop = null;
     this.buffer = { duration: decoded.duration, sampleRate: decoded.sampleRate, numberOfChannels: decoded.numberOfChannels };
     this.peaks = overview(decoded.getChannelData(0));
+    const tempo = detectTempo(decoded.getChannelData(0), decoded.sampleRate);
+    this.tempoConfidence = tempo.confidence; this.beatOffset = tempo.offset;
+    if (tempo.bpm) this.setBpm(tempo.bpm);
     // The samples move to the audio thread; the decoded buffer is then released.
     const channels = Array.from({ length: Math.min(2, decoded.numberOfChannels) }, (_, c) => decoded.getChannelData(c).slice());
     this.sequence++; this.clock = { position: 0, time: this.context.currentTime };
@@ -163,6 +169,10 @@ export class Deck {
   setVolume(value) { this.gain.gain.setTargetAtTime(clamp(value, 0, 1), this.context.currentTime, 0.01); }
   setEQ(index, value) { this.filters[index].gain.setTargetAtTime(clamp(value, -24, 12), this.context.currentTime, 0.01); }
   setBpm(value) { this.bpm = clamp(value, 40, 240); this.setEchoBeats(this.echoBeats); }
+  // Where the playhead is in the beat: 0 on a beat, rising to 1 just before the next one.
+  get beatPhase() { const period = 60 / this.bpm; return ((((this.position - this.beatOffset) / period) % 1) + 1) % 1; }
+  // First beat at or after `seconds`.
+  nextBeat(seconds) { const period = 60 / this.bpm; return this.beatOffset + Math.ceil((seconds - this.beatOffset - 1e-6) / period) * period; }
   // Echo time in beats (FX BEAT ◄ / ►): 1/8 to 2 beats.
   setEchoBeats(beats) {
     this.echoBeats = clamp(beats, 0.125, 2);

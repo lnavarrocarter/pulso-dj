@@ -6,6 +6,7 @@ import { knob, platter, setMeter } from './console-ui.mjs';
 import { mountLibrary } from './library-ui.mjs';
 import { createPads } from './pads.mjs';
 import { mountRequests } from './requests-ui.mjs';
+import { createAutoDJ } from './autodj.mjs';
 const $ = selector => document.querySelector(selector);
 const mixer = new Mixer();
 const status = message => { $('#status').textContent = message; };
@@ -111,7 +112,9 @@ mixer.decks.forEach((deck, index) => {
     status(`Cargando ${file.name}…`);
     const bytes = new Uint8Array(file.bytes); await deck.load(bytes.buffer);
     trackId = id; find('.track').textContent = file.name;
-    find('.track-info').textContent = `${formatTime(deck.duration)} · ${deck.buffer.sampleRate / 1000} kHz · ${deck.buffer.numberOfChannels === 1 ? "mono" : "estéreo"}`;
+    find('.bpm').value = deck.bpm.toFixed(1);
+    const tempo = deck.tempoConfidence > 0.15 ? `${deck.bpm.toFixed(1)} BPM` : 'BPM dudoso: usa Tap';
+    find('.track-info').textContent = `${formatTime(deck.duration)} · ${tempo} · ${deck.buffer.numberOfChannels === 1 ? 'mono' : 'estéreo'}`;
     for (const element of view.querySelectorAll('.play,.cue,.set-cue,.sync,[data-loop],.loop-off')) element.disabled = false;
     const part = entry?.request;
     if (part && part.start < deck.duration) {
@@ -467,6 +470,7 @@ function animate() {
   mixer.analyser.getByteFrequencyData(frequency); ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#c9ced6';
   for (let i = 0; i < 40; i++) { const height = frequency[i * 3] / 255 * 40; ctx.fillRect(i * 6, 40 - height, 4, Math.max(1, height)); }
+  setAttr($('#autodj'), 'aria-pressed', String(autodj.running)); setText($('#autodj-status'), autodj.describe());
   updateLeds(); // sends only the LEDs whose value changed
   requestAnimationFrame(animate);
 }
@@ -506,4 +510,17 @@ $('#output').onchange = () => safe(chooseOutput);
 if (navigator.mediaDevices) navigator.mediaDevices.ondevicechange = () => safe(listOutputs);
 safe(listOutputs);
 mountRequests({ status, library });
+// The Auto DJ moves the same controls as the DJ, so the screen shows every move and the hardware takes over softly.
+const autodj = createAutoDJ({
+  mixer, status, library, trackId: index => deckActions[index].trackId(),
+  ui: {
+    setCrossfade: value => setRange($('#crossfade'), value),
+    setLow: (index, dB) => setRange(deckActions[index].find('[data-eq="0"]'), dB),
+    setVolume: (index, value) => setRange(deckActions[index].find('.volume'), value),
+    setPitch: (index, percent) => setRange(deckActions[index].find('.pitch'), percent),
+    setKeylock: (index, on) => deckActions[index].setKeylock(on),
+    setAssign: (index, side) => mixer.setAssign(index, side)
+  }
+});
+$('#autodj').onclick = () => autodj.toggle();
 mountAssistant(mixer, status);
