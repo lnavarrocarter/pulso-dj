@@ -14,6 +14,8 @@
     "test:desktop": "electron desktop/smoke.cjs",
     "test:youtube": "electron desktop/youtube-smoke.cjs",
     "test:assistant": "electron desktop/assistant-smoke.cjs",
+    "midi:monitor": "electron desktop/midi-monitor.cjs",
+    "midi:guided": "electron desktop/midi-monitor.cjs --guided",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },

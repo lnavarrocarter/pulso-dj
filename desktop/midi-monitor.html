@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>Monitor MIDI</title>
+<style>
+  body { margin: 0; padding: 18px; background: #0b1017; color: #e8eef6; font: 15px system-ui, sans-serif; user-select: none; }
+  #progress { color: #8a98aa; font-size: 13px; }
+  #step { font-size: 22px; font-weight: 600; margin: 6px 0 12px; min-height: 58px; }
+  #seen { color: #8a98aa; font-size: 13px; min-height: 36px; font-family: ui-monospace, monospace; }
+  #last { color: #59d6a4; font-family: ui-monospace, monospace; font-size: 13px; min-height: 18px; margin-bottom: 14px; }
+  button { font: inherit; padding: 9px 16px; margin-right: 8px; border-radius: 6px; border: 1px solid #2c3a4c; background: #1a2533; color: inherit; cursor: pointer; }
+  button.primary { background: #2f6fed; border-color: #2f6fed; }
+  button:disabled { opacity: .4; cursor: default; }
+</style>
+<div id="progress"></div>
+<div id="step">Abriendo MIDI…</div>
+<div id="seen"></div>
+<div id="last"></div>
+<button id="back">Atrás</button><button id="next" class="primary">Siguiente</button><button id="finish">Terminar y guardar</button>
