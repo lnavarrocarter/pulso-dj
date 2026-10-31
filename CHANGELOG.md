@@ -2,6 +2,10 @@
 
 Iteraciones locales construidas el 13 de octubre de 2026. El repositorio empieza con el snapshot 0.4.0; no hay commits históricos que representen las versiones anteriores.
 
+## 0.5.1 — Linux
+
+AppImage y `.deb` para Linux x64 con yt-dlp para Linux incluido. Los paquetes de Windows y Linux se compilan en GitHub Actions, cada uno en su sistema y tras pasar allí las pruebas. Repositorio público y README actualizado.
+
 ## 0.5.0 — Mesa y pista
 
 Consola de cuatro decks pensada para la Pioneer DDJ-SB3, con perfil integrado y sincronización de faders al conectar. Cubre todos los controles que envían MIDI:

@@ -42,7 +42,10 @@ jobs:
       - run: npx electron-builder ${{ matrix.targets }} --publish never
       - name: Checksums
         shell: bash
-        run: cd release && sha256sum Pulso-DJ-*.exe Pulso-DJ-*.AppImage Pulso-DJ-*.deb 2>/dev/null > SHA256SUMS-${{ runner.os }}.txt; cat SHA256SUMS-${{ runner.os }}.txt
+        run: |
+          cd release && shopt -s nullglob
+          sha256sum Pulso-DJ-*.exe Pulso-DJ-*.AppImage Pulso-DJ-*.deb > SHA256SUMS-${{ runner.os }}.txt
+          cat SHA256SUMS-${{ runner.os }}.txt
       - uses: actions/upload-artifact@v4
         with:
           name: pulso-dj-${{ runner.os }}

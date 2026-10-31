@@ -1,6 +1,6 @@
 {
   "name": "pulso-dj",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "Base de aplicación DJ para Windows, macOS y Linux",
   "homepage": "https://github.com/lnavarrocarter/pulso-dj",
