@@ -160,6 +160,9 @@ input.pitch::-webkit-slider-thumb, input.volume::-webkit-slider-thumb {
 .decks-2 .strips { grid-template-columns: repeat(2, 1fr); }
 .strip { display: grid; justify-items: center; gap: 7px; padding: 8px 2px; border-radius: 7px; background: #262b32; border: 1px solid #353b44; }
 .strip-num { font-size: 13px; font-weight: 700; color: var(--led); }
+/* Decks controlled from the hardware right now (DECK 3/4 switch them): a lit ring around the deck number. */
+.deck.hw .deck-num, .strip.hw .strip-num { outline: 2px solid var(--led); outline-offset: 2px; box-shadow: 0 0 14px color-mix(in srgb, var(--led) 55%, transparent); }
+.strip.hw .strip-num { padding: 0 5px; border-radius: 4px; }
 .fader-row { display: flex; gap: 6px; align-items: center; }
 .vu { --level: 0; position: relative; width: 6px; height: 150px; border-radius: 2px; background: #0b0c0e; overflow: hidden; }
 .vu i {

@@ -21,11 +21,15 @@ export const PAD_MODES = ['hotcue', 'fxfade', 'scratch', 'sampler', 'beatjump', 
 const padModeButtons = { 27: 0, 30: 1, 32: 2, 34: 3, 105: 4, 107: 5, 109: 6, 110: 7 };
 const padModeLeds = [27, 30, 32, 34];
 const deckRanges = { 0: 'pitch', 4: 'trim', 7: 'eq2', 11: 'eq1', 15: 'eq0', 19: 'volume' };
-// Channels 1-4 carry decks 1-4: the DECK 3/4 buttons switch which channel each side of the hardware sends on.
+// Each side of the hardware controls one deck layer: 1 or 3 on the left, 2 or 4 on the right. The DECK 3/4 buttons
+// send note 114. Mixxx expects it on the new deck's channel (value 127) and the controls to move to that channel;
+// a physical capture showed it on the old deck's channel with value 0 and the controls staying there. Both are handled:
+// the layer comes from note 114, and every control on a side goes to that side's layer, whatever channel it uses.
 export function createDDJSB3() {
   const msb = new Map();
-  const active = [0, 1]; // deck shown on the left and right side of the hardware
+  const active = [0, 1]; // deck controlled from the left and right side of the hardware
   let syncing = false;
+  const layerFor = deck => { if (deck >= 2 && !syncing) active[deck % 2] = deck; return active[deck % 2]; };
   // Faders send MSB (CC n) then LSB (CC n + 32); a value is emitted once the pair is complete.
   const fine = (channel, number, value) => {
     if (number < 32) { msb.set(`${channel}:${number}`, value); return null; }
@@ -40,24 +44,33 @@ export function createDDJSB3() {
     // While syncing, values reported for the hidden deck layer are stale and ignored.
     beginSync() { syncing = true; },
     endSync() { syncing = false; },
+    layers: () => [...active],
     receive(data) {
       if (!data || data.length < 3) return [];
       const kind = data[0] & 0xf0, channel = data[0] & 15, number = data[1], value = data[2];
       const pressed = kind === 0x90 && value > 0;
       if (channel <= 3) {
-        if (!syncing) active[channel % 2] = channel;
-        else if (number === 114 && pressed) { active[channel % 2] = channel; return []; }
-        else if (channel !== active[channel % 2]) return [];
+        const side = channel % 2;
+        if ((kind === 0x90 || kind === 0x80) && number === 114) {
+          active[side] = pressed ? channel : channel ^ 2;
+          return [{ action: 'layer', side, deck: active[side] }];
+        }
+        // While syncing, values reported for the hidden layer are stale. Otherwise a control on channel 3 or 4 means that
+        // layer is in use (Mixxx's behaviour); channels 1 and 2 follow the last note 114.
+        if (syncing && channel !== active[side]) return [];
+        if (channel >= 2) active[side] = channel;
       }
+      if (channel >= 9 && channel <= 10) active[channel - 9] = channel - 7;
+      const deck = channel <= 3 ? active[channel % 2] : channel >= 7 && channel <= 10 ? active[(channel - 7) % 2] : null;
       if (kind === 0x90 || kind === 0x80) {
         if (channel <= 3) {
-          if (number === 53 || number === 54 || number === 103) return [{ deck: channel, action: 'touch', on: pressed }];
-          if (pressed && padModeButtons[number] !== undefined) return [{ deck: channel, action: 'padMode', mode: PAD_MODES[padModeButtons[number]] }];
-          return pressed && deckButtons[number] ? [{ deck: channel, action: deckButtons[number] }] : [];
+          if (number === 53 || number === 54 || number === 103) return [{ deck, action: 'touch', on: pressed }];
+          if (pressed && padModeButtons[number] !== undefined) return [{ deck, action: 'padMode', mode: PAD_MODES[padModeButtons[number]] }];
+          return pressed && deckButtons[number] ? [{ deck, action: deckButtons[number] }] : [];
         }
         // Pads report release too: rolls, censor, FX FADE and TRANS last while the pad is held.
         if (channel >= 7 && channel <= 10) {
-          return [{ deck: channel - 7, action: 'pad', mode: PAD_MODES[number >> 4], pad: number & 7, shift: Boolean(number & 8), on: pressed }];
+          return [{ deck, action: 'pad', mode: PAD_MODES[number >> 4], pad: number & 7, shift: Boolean(number & 8), on: pressed }];
         }
         if (!pressed) return [];
         if (channel === 4 || channel === 5) {
@@ -67,7 +80,8 @@ export function createDDJSB3() {
           if (number === 100 || number === 101) return [{ deck: active[channel - 4], action: 'echoBeats', factor: number === 100 ? 0.5 : 2 }];
           return [];
         }
-        if (channel === 6 && number >= 70 && number <= 73) return [{ deck: number - 70, action: 'load' }];
+        // LOAD and FILTER exist once per side. Numbers for decks 3/4 mean that layer is in use; those for decks 1/2 follow the layer.
+        if (channel === 6 && number >= 70 && number <= 73) return [{ deck: layerFor(number - 70), action: 'load' }];
         if (channel === 6 && number === 65) return [{ action: 'browsePress' }];
         if (channel === 6 && number === 66) return [{ action: 'browseBack' }];
         if (channel === 6 && (number === 91 || number === 120)) return [{ action: 'masterCue' }];
@@ -76,11 +90,11 @@ export function createDDJSB3() {
       if (kind !== 0xb0) return [];
       if (channel <= 3) {
         const delta = value - 64;
-        if (number >= 33 && number <= 35) return [{ deck: channel, action: 'jog', delta }]; // ring, vinyl surface, plain surface
-        if (number === 31 || number === 38) return [{ deck: channel, action: 'search', delta }];
+        if (number >= 33 && number <= 35) return [{ deck, action: 'jog', delta }]; // ring, vinyl surface, plain surface
+        if (number === 31 || number === 38) return [{ deck, action: 'search', delta }];
         const amount = fine(channel, number, value); const target = deckRanges[number < 32 ? -1 : number - 32];
         if (amount === null || !target) return [];
-        return [{ deck: channel, action: 'range', target, value: target === 'pitch' ? 1 - amount : amount }];
+        return [{ deck, action: 'range', target, value: target === 'pitch' ? 1 - amount : amount }];
       }
       if (channel === 4 || channel === 5) {
         const amount = fine(channel, number, value);
@@ -91,15 +105,21 @@ export function createDDJSB3() {
         if (number === 64 || number === 100) { const step = value < 64 ? value : value - 128; return [{ action: 'browse', delta: number === 100 ? step * 10 : step }]; }
         const amount = fine(channel, number, value); if (amount === null) return [];
         if (number === 63) return [{ action: 'crossfade', value: amount }];
-        if (number >= 55 && number <= 58) return [{ deck: number - 55, action: 'filter', value: filterAmount(amount) }];
+        if (number >= 55 && number <= 58) {
+          if (syncing && active[(number - 55) % 2] !== number - 55) return []; // hidden layer
+          return [{ deck: layerFor(number - 55), action: 'filter', value: filterAmount(amount) }];
+        }
       }
       return [];
     },
     // decks: [{ loaded, playing, loop: beats|null, padMode, pads: [bool×8], fxOn: [names], keylock, vinyl, slip, headphones, level: 0-1 }];
     // mixer: { masterCue }. Returns the note-on messages for every LED and the CC 2 value for each channel level meter.
+    // Each side shows the deck of its layer, sent on both of the side's channels (1 and 3, or 2 and 4) so the LEDs are
+    // right whichever channel the hardware listens on.
     leds(decks, mixer = {}) {
       const messages = [], on = flag => flag ? 127 : 0;
-      decks.forEach((deck, index) => {
+      const sides = active.flatMap((layer, side) => decks[layer] ? [[side, decks[layer]], [side + 2, decks[layer]]] : []);
+      sides.forEach(([index, deck]) => {
         const mode = Math.max(0, PAD_MODES.indexOf(deck.padMode));
         messages.push([0x90 + index, 11, on(deck.playing)], [0x90 + index, 12, on(deck.loaded && !deck.playing)],
           [0x90 + index, 20, on(deck.loop !== null)], [0x90 + index, 26, on(deck.keylock)], [0x90 + index, 23, on(deck.vinyl)],

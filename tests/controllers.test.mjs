@@ -65,21 +65,24 @@ test('decks 3 y 4: canales 3/4, pads en canales 10/11 y FX del deck activo en ca
   assert.deepEqual(sb3.receive([0x92, 11, 127]), [{ deck: 2, action: 'play' }]);
   assert.deepEqual(sb3.receive([0x9a, 1, 127]), [{ deck: 3, action: 'pad', mode: 'hotcue', pad: 1, shift: false, on: true }]);
   assert.deepEqual(sb3.receive([0x94, 73, 127]), [{ deck: 2, action: 'toggleFX', fx: 'drive' }], 'el lado izquierdo muestra el deck 3');
-  assert.deepEqual(sb3.receive([0x95, 71, 127]), [{ deck: 1, action: 'toggleFX', fx: 'echo' }]);
+  assert.deepEqual(sb3.receive([0x95, 71, 127]), [{ deck: 3, action: 'toggleFX', fx: 'echo' }], 'los pads del deck 4 activan el deck 4 a la derecha');
   assert.deepEqual(fader(sb3, 0xb6, 26, 127, 127), [{ deck: 3, action: 'filter', value: 1 }]);
   assert.deepEqual(sb3.receive([0x96, 72, 127]), [{ deck: 2, action: 'load' }]);
   const deck = fx => ({ loaded: false, playing: false, loop: null, padMode: 'hotcue', pads: [false, false, false, false, false, false, false, false], fxOn: [fx] });
   const leds = new Map(sb3.leds([deck('echo'), deck('reverb'), deck('drive'), deck('echo')]).map(([status, note, value]) => [`${status}:${note}`, value]));
-  assert.equal(leds.get('148:73'), 127); assert.equal(leds.get('149:72'), 127); assert.equal(leds.get('146:27'), 127);
+  assert.equal(leds.get('148:73'), 127); assert.equal(leds.get('149:71'), 127); assert.equal(leds.get('146:27'), 127);
 });
 test('sincronización: la SB3 informa del deck activo y se ignoran los valores de la capa oculta', () => {
   const sb3 = createDDJSB3();
   assert.equal(sb3.stateRequest[0], 0xf0); assert.equal(sb3.stateRequest.at(-1), 0xf7);
   sb3.beginSync();
-  assert.deepEqual(sb3.receive([0x92, 114, 127]), [], 'el deck 3 está activo a la izquierda');
+  assert.deepEqual(sb3.receive([0x92, 114, 127]), [{ action: 'layer', side: 0, deck: 2 }], 'el deck 3 está activo a la izquierda');
   assert.deepEqual(fader(sb3, 0xb0, 19, 0, 0), [], 'capa oculta del deck 1');
+  assert.deepEqual(fader(sb3, 0xb6, 23, 0, 0), [], 'filtro de la capa oculta');
+  assert.deepEqual(fader(sb3, 0xb6, 25, 0, 0), [{ deck: 2, action: 'filter', value: -1 }]);
   assert.deepEqual(fader(sb3, 0xb2, 19, 127, 127), [{ deck: 2, action: 'range', target: 'volume', value: 1 }]);
   sb3.endSync();
+  assert.deepEqual(sb3.receive([0x90, 114, 127]), [{ action: 'layer', side: 0, deck: 0 }]);
   assert.deepEqual(sb3.receive([0x90, 11, 127]), [{ deck: 0, action: 'play' }]);
 });
 test('navegador de la biblioteca: girar mueve la selección y LOAD carga en cada deck', () => {
@@ -130,4 +133,20 @@ test('funciones con SHIFT, CUE de cascos y MASTER', () => {
   const leds = new Map(sb3.leds([{ loaded: false, playing: false, loop: null, padMode: 'hotcue', pads: [false, false, false, false, false, false, false, false], fxOn: [], headphones: true, slip: true }], { masterCue: true })
     .map(([status, note, value]) => [`${status}:${note}`, value]));
   assert.equal(leds.get('144:84'), 127); assert.equal(leds.get('144:64'), 127); assert.equal(leds.get('150:91'), 127);
+});
+test('DECK 3/4 avisado por el canal del deck 1/2: los controles de ese lado pasan al deck 3/4', () => {
+  const sb3 = createDDJSB3();
+  assert.deepEqual(sb3.receive([0x90, 114, 0]), [{ action: 'layer', side: 0, deck: 2 }], 'DECK 3 apaga la capa 1');
+  assert.deepEqual(sb3.receive([0x90, 11, 127]), [{ deck: 2, action: 'play' }]);
+  assert.deepEqual(fader(sb3, 0xb0, 19, 127, 127), [{ deck: 2, action: 'range', target: 'volume', value: 1 }]);
+  assert.deepEqual(sb3.receive([0x97, 0, 127]), [{ deck: 2, action: 'pad', mode: 'hotcue', pad: 0, shift: false, on: true }]);
+  assert.deepEqual(fader(sb3, 0xb6, 23, 0, 0), [{ deck: 2, action: 'filter', value: -1 }], 'FILTER izquierdo');
+  assert.deepEqual(sb3.receive([0x96, 70, 127]), [{ deck: 2, action: 'load' }], 'LOAD izquierdo');
+  assert.deepEqual(sb3.receive([0x91, 11, 127]), [{ deck: 1, action: 'play' }], 'el lado derecho sigue en el deck 2');
+  assert.deepEqual(sb3.layers(), [2, 1]);
+  const deck = playing => ({ loaded: true, playing, loop: null, padMode: 'hotcue', pads: [false, false, false, false, false, false, false, false], fxOn: [] });
+  const leds = new Map(sb3.leds([deck(false), deck(false), deck(true), deck(false)]).map(([status, note, value]) => [`${status}:${note}`, value]));
+  assert.equal(leds.get('144:11'), 127, 'el PLAY izquierdo muestra el deck 3'); assert.equal(leds.get('146:11'), 127); assert.equal(leds.get('145:11'), 0);
+  assert.deepEqual(sb3.receive([0x90, 114, 127]), [{ action: 'layer', side: 0, deck: 0 }], 'DECK 3 otra vez vuelve al deck 1');
+  assert.deepEqual(sb3.receive([0x90, 11, 127]), [{ deck: 0, action: 'play' }]);
 });

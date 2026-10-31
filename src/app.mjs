@@ -327,6 +327,14 @@ function runAction({ deck: index, action, ...detail }) {
     case 'load': if (library.hasSelection()) library.loadInto(index); else controls.find('.load').click(); break;
     case 'browse': library.moveSelection(detail.delta); break;
     case 'browseBack': library.moveSelection(-Infinity); break;
+    case 'layer': {
+      // The physical faders and knobs stay where they were: hand their last position to the new deck so soft
+      // takeover keeps them from jumping its volume, EQ or tempo until they reach its values.
+      const from = deckActions[detail.deck ^ 2].letter, to = deckActions[detail.deck].letter;
+      for (const [id, value] of [...hardware]) if (id.startsWith(`${from}.`)) hardware.set(to + id.slice(1), value);
+      if (detail.deck >= 2 && visibleDecks() === 2) showDecks(4);
+      status(`Mesa: el lado ${detail.side ? 'derecho' : 'izquierdo'} controla el deck ${detail.deck + 1}.`); break;
+    }
     case 'masterCue': setMasterCue(!masterCue()); break;
     case 'browsePress': {
       // Pressing the browse knob loads the selection into the first visible deck that is not playing.
@@ -420,8 +428,11 @@ function meters() {
 }
 // Every frame (60 fps): time, waveform, platters, pads, meters and controller LEDs follow the audio.
 function animate() {
+  const layers = profile?.layers?.() ?? [];
   mixer.decks.forEach((deck, i) => {
     const { view, strip } = deckActions[i];
+    // Decks the hardware controls right now (DECK 3/4 switch them).
+    view.classList.toggle('hw', layers.includes(i)); strip.classList.toggle('hw', layers.includes(i));
     setText(view.querySelector('.elapsed'), formatTime(deck.position));
     setText(view.querySelector('.remaining'), `−${formatTime(deck.duration - deck.position)}`);
     waveform(view, deck);

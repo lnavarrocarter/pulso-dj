@@ -18,7 +18,7 @@ Los canales se numeran desde 1 (canal 1 = status `0x90`/`0xB0`).
 
 | Canal | Contenido |
 | --- | --- |
-| 1 / 2 / 3 / 4 | Decks 1 a 4. Los botones DECK 3/4 cambian por qué canal envía cada lado de la mesa |
+| 1 / 2 / 3 / 4 | Decks 1 a 4. Cada lado de la mesa controla una capa: deck 1 o 3 a la izquierda, 2 o 4 a la derecha (ver «DECK 3/4») |
 | 5 / 6 | Sección FX izquierda / derecha |
 | 7 | Mezclador global: crossfader, filtros, navegador, LOAD, master, auriculares |
 | 8 / 9 / 10 / 11 | Pads de los decks 1 a 4 |
@@ -104,6 +104,14 @@ La tarjeta de sonido de la DDJ-SB3 tiene 4 salidas: 1-2 van a MASTER OUT y 3-4 a
 
 Para mostrar el nombre de las salidas, Chromium exige que pase la comprobación del permiso de audio. Pulso solo deja pasar esa comprobación; las peticiones de micrófono se siguen denegando (desktop/permissions.cjs).
 
+## DECK 3/4
+
+Los botones DECK 3 y DECK 4 envían la nota 114. Mixxx la espera en el canal del deck nuevo (valor 127) y que los controles pasen a ese canal. En la captura de esta mesa llegó en el canal del deck 1/2 con valor 0 y no hubo mensajes en los canales 3/4. Pulso acepta las dos formas: la nota 114 fija la capa de su lado (valor 127: la de ese canal; valor 0: la otra), y todos los controles de un lado (botones, faders, jog, pads, FILTER, LOAD) van al deck de esa capa, lleguen por el canal que lleguen. Un mensaje en los canales 3/4, o en los números de FILTER y LOAD de los decks 3/4, también activa esa capa.
+
+Los LEDs de un lado muestran el deck de su capa y se envían por los dos canales del lado. En pantalla, el número del deck que controla la mesa tiene un anillo iluminado; si se pasa al deck 3 o 4 con la vista de 2 decks, se abre la de 4. Los faders y potenciómetros no saltan al cambiar de capa: el deck nuevo recibe la última posición física de cada control y se aplica la toma suave.
+
+Pulso no puede cambiar la capa desde el ordenador: al enviar la nota 114 a la mesa, la petición de estado sigue informando de los decks 1 y 2 (comprobado el 31-10-2026).
+
 ## Sincronización al conectar
 
 Pulso envía el mismo SysEx que Mixxx al arrancar (`F0 00 20 7F 03 01 F7`). La SB3 responde con unos 85 mensajes: nota 114 en el canal del deck activo de cada lado, y el valor de todos los faders, potenciómetros, filtros, FX y crossfader. Durante 1,2 s el perfil aplica esos valores e ignora los de la capa de decks oculta, que no reflejan los controles físicos. Comprobado con la mesa física el 31-10-2026.
@@ -117,4 +125,4 @@ El perfil envía nota on (127 encendido / 0 apagado) al puerto de salida cuando 
 ## Pendiente
 
 - Comprobar con la mesa la luz de cada pad en los modos que no son HOT CUE.
-- Comprobar qué envía la mesa al pulsar DECK 3/4: si no manda la posición de los controles, la nueva capa conserva los valores anteriores hasta que se mueve cada control.
+- Confirmar con la mesa qué mensajes envía al pulsar DECK 3/4 (el perfil admite las dos formas conocidas).
