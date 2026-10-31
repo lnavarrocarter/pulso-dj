@@ -41,3 +41,8 @@ test('cámara solo habilitada explícitamente; micrófono y permisos desconocido
   assert.equal(requestPermission('media', { mediaTypes: ['video', 'audio'] }, true), false);
   assert.equal(requestPermission('media', {}, true), false); assert.equal(checkPermission('geolocation', {}, true), false);
 });
+test('MIDI permitido aunque Chromium lo solicite como midiSysex', () => {
+  for (const permission of ['midi', 'midiSysex']) {
+    assert.equal(checkPermission(permission, {}, false), true); assert.equal(requestPermission(permission, {}, false), true);
+  }
+});
