@@ -7,6 +7,7 @@ export class Deck {
     this.offset = 0;
     this.startedAt = 0;
     this.rate = 1;
+    this.bendAmount = 0;
     this.cue = 0;
     this.hotCues = [null, null, null, null];
     this.bpm = 120;
@@ -42,11 +43,20 @@ export class Deck {
     this.delay.connect(this.echoWet); this.echoWet.connect(this.gain);
     this.shaper.connect(this.reverb); this.reverb.connect(this.reverbWet); this.reverbWet.connect(this.gain);
     this.gain.connect(this.mix); this.mix.connect(destination);
+    this.meter = context.createAnalyser(); this.meter.fftSize = 256; this.gain.connect(this.meter);
+    this.meterSamples = new Float32Array(this.meter.fftSize);
   }
   get playing() { return this.source !== null; }
   get duration() { return this.buffer?.duration || 0; }
+  get speed() { return this.rate * (1 + this.bendAmount); }
   get position() {
-    return clamp(loopPosition(this.offset + (this.playing ? (this.context.currentTime - this.startedAt) * this.rate : 0), this.loop), 0, this.duration);
+    return clamp(loopPosition(this.offset + (this.playing ? (this.context.currentTime - this.startedAt) * this.speed : 0), this.loop), 0, this.duration);
+  }
+  // Post-fader peak level of this channel, 0-1, for the mixer meters.
+  get level() {
+    this.meter.getFloatTimeDomainData(this.meterSamples);
+    let peak = 0; for (const sample of this.meterSamples) peak = Math.max(peak, Math.abs(sample));
+    return peak;
   }
   async load(bytes) {
     const decoded = await this.context.decodeAudioData(bytes.slice(0));
@@ -60,7 +70,7 @@ export class Deck {
     if (this.playing) return;
     if (this.offset >= this.duration) this.offset = 0;
     const source = this.context.createBufferSource();
-    source.buffer = this.buffer; source.playbackRate.value = this.rate;
+    source.buffer = this.buffer; source.playbackRate.value = this.speed;
     if (this.loop) { source.loop = true; source.loopStart = this.loop.start; source.loopEnd = this.loop.end; }
     source.connect(this.filters[0]); this.startedAt = this.context.currentTime; this.source = source;
     source.onended = () => {
@@ -81,8 +91,16 @@ export class Deck {
   setRate(value) {
     this.offset = this.position; this.startedAt = this.context.currentTime;
     this.rate = clamp(value, 0.84, 1.16);
-    if (this.source) this.source.playbackRate.setValueAtTime(this.rate, this.context.currentTime);
+    if (this.source) this.source.playbackRate.setValueAtTime(this.speed, this.context.currentTime);
   }
+  // Temporary speed offset for jog nudges; the tempo fader rate is kept underneath.
+  bend(amount) {
+    this.offset = this.position; this.startedAt = this.context.currentTime;
+    this.bendAmount = clamp(amount, -0.5, 0.5);
+    if (this.source) this.source.playbackRate.setValueAtTime(this.speed, this.context.currentTime);
+  }
+  // Moves a paused deck without touching its loop, unlike seek().
+  scrub(seconds) { if (this.buffer && !this.playing) this.offset = clamp(this.position + seconds, 0, this.duration); }
   setVolume(value) { this.gain.gain.setTargetAtTime(clamp(value, 0, 1), this.context.currentTime, 0.01); }
   setEQ(index, value) { this.filters[index].gain.setTargetAtTime(clamp(value, -24, 12), this.context.currentTime, 0.01); }
   setBpm(value) {
@@ -132,11 +150,16 @@ export class Mixer {
     this.limiter.ratio.value = 20; this.limiter.attack.value = 0.003; this.limiter.release.value = 0.15;
     this.analyser = this.context.createAnalyser(); this.analyser.fftSize = 512;
     this.master.connect(this.limiter); this.limiter.connect(this.analyser); this.analyser.connect(this.context.destination);
-    this.decks = [new Deck(this.context, this.master), new Deck(this.context, this.master)];
+    this.decks = [0, 1, 2, 3].map(() => new Deck(this.context, this.master));
+    // Crossfader side per channel, as on the hardware: decks 1 and 3 on A, 2 and 4 on B.
+    this.assign = ['A', 'B', 'A', 'B'];
     this.setCrossfade(0.5);
   }
   setCrossfade(value) {
-    crossfade(value).forEach((gain, i) => this.decks[i].mix.gain.setTargetAtTime(gain, this.context.currentTime, 0.01));
+    this.crossfade = value;
+    const [a, b] = crossfade(value);
+    this.decks.forEach((deck, i) => deck.mix.gain.setTargetAtTime({ A: a, B: b }[this.assign[i]] ?? 1, this.context.currentTime, 0.01));
   }
+  setAssign(index, side) { this.assign[index] = side; this.setCrossfade(this.crossfade); }
   setMaster(value) { this.master.gain.setTargetAtTime(clamp(value, 0, 1), this.context.currentTime, 0.01); }
 }

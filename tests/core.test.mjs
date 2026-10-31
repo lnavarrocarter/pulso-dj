@@ -32,3 +32,8 @@ test('los controles se identifican por dispositivo, tipo y canal', () => {
 test('tiempos negativos y largos', () => {
   assert.equal(formatTime(-1), '00:00'); assert.equal(formatTime(125.8), '02:05'); assert.equal(formatTime(3600), '60:00');
 });
+test('potenciómetros con centro: EQ −24 … 0 … +12 dB con el 0 en la posición central', async () => {
+  const { fromKnob, toKnob } = await import('../src/core.mjs');
+  assert.equal(fromKnob(0.5, -24, 0, 12), 0); assert.equal(fromKnob(0, -24, 0, 12), -24); assert.equal(fromKnob(1, -24, 0, 12), 12);
+  assert.equal(fromKnob(0.25, -24, 0, 12), -12); assert.equal(toKnob(6, -24, 0, 12), 0.75); assert.equal(toKnob(0, -24, 0, 12), 0.5);
+});

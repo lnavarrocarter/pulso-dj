@@ -14,8 +14,8 @@ app.whenReady().then(async () => {
     const result = await window.webContents.executeJavaScript(`(async () => {
       const { Mixer, Deck } = await import('./audio.mjs');
       const check = (condition, message) => { if (!condition) throw new Error(message); };
-      check(document.querySelectorAll('.deck').length === 2, 'Two deck views');
-      check(document.querySelector('#target').options.length === 46, 'MIDI targets');
+      check(document.querySelectorAll('.deck').length === 4 && document.querySelectorAll('.strip').length === 4, 'Four deck views and mixer strips');
+      check(document.querySelector('#target').options.length === 90, 'MIDI targets');
       check(window.desktop && !window.require, 'Isolated preload');
       const mixer = new Mixer(); mixer.setMaster(0);
       const deck = mixer.decks[0];
@@ -47,6 +47,8 @@ app.whenReady().then(async () => {
       await deck.seek(0.3); await deck.triggerHotCue(0); check(Math.abs(deck.hotCues[0]-0.3)<0.01,'Save hot cue');
       await deck.seek(0.7); await deck.triggerHotCue(0); check(deck.playing && deck.position<0.4,'Recall hot cue');
       await deck.triggerHotCue(0,true); check(deck.hotCues[0]===null,'Clear hot cue'); deck.pause();
+      await deck.seek(0.5); deck.scrub(0.1); check(Math.abs(deck.position-0.6)<0.001,'Jog scrub while paused');
+      deck.bend(0.2); check(Math.abs(deck.speed-1.2)<1e-9 && deck.rate===1,'Jog bend keeps tempo'); deck.bend(0);
       deck.setFX('drive',1); check(deck.shaper.curve.length===2048,'Drive curve');
       deck.setFX('drive',0); check(deck.shaper.curve===null,'Drive reset');
       const renderFX = async effect => {
@@ -64,7 +66,7 @@ app.whenReady().then(async () => {
       check(energy(await renderFX('filter'))<energy(await renderFX('baseline'))*0.02,'Filter attenuates high frequencies');
       deck.setEQ(0,50); check(deck.filters[0].gain.value<=12,'EQ bounds');
       await mixer.context.close();
-      return { decks:2, midiTargets:46, decode:true, transport:true, looping:true, hotCues:true, echo:true, reverb:true, filter:true, drive:true, isolated:true };
+      return { decks:4, midiTargets:90, decode:true, transport:true, looping:true, hotCues:true, echo:true, reverb:true, filter:true, drive:true, isolated:true };
     })()`);
     if (errors.length) throw new Error(errors.join('\n'));
     await writeFile(path.join(__dirname, '../preview.png'), (await window.webContents.capturePage()).toPNG());

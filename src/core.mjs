@@ -9,6 +9,15 @@ export function loopPosition(position, loop) {
   if (!loop || position < loop.end) return position;
   return loop.start + (position - loop.start) % (loop.end - loop.start);
 }
+// Knob position 0-1 ↔ value for controls whose centre detent is not the arithmetic middle (EQ: −24 … 0 … +12 dB).
+export function fromKnob(position, min, center, max) {
+  const p = clamp(position, 0, 1);
+  return p < 0.5 ? min + (center - min) * p * 2 : center + (max - center) * (p - 0.5) * 2;
+}
+export function toKnob(value, min, center, max) {
+  const v = clamp(value, min, max);
+  return v < center ? (v - min) / (center - min) / 2 : 0.5 + (v - center) / (max - center) / 2;
+}
 export function crossfade(value) {
   const angle = clamp(value, 0, 1) * Math.PI / 2;
   return [Math.cos(angle), Math.sin(angle)];
