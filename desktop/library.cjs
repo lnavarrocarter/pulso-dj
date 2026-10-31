@@ -26,13 +26,15 @@ function createLibrary(folder) {
     });
     return saving;
   }
-  const publicEntry = ({ id, title, source, url, format, duration, addedAt }) => ({ id, title, source, url, format, duration, addedAt });
+  const publicEntry = ({ id, title, source, url, format, duration, addedAt, request }) => ({ id, title, source, url, format, duration, addedAt, request });
   const ownedFile = entry => path.join(folder, `${entry.id}.${entry.format}`);
   async function list() { return (await load()).map(publicEntry); }
-  async function addImport({ name, format, bytes }, url) {
+  // request: { by, start, end } when a guest asked for the song and marked their favourite part (seconds).
+  async function addImport({ name, format, bytes }, url, request = null) {
     if (!FORMATS.includes(format) || !(bytes instanceof Uint8Array) || bytes.byteLength > MAX_BYTES) throw new Error('Audio no válido para la biblioteca.');
     await load();
     const entry = { id: crypto.randomBytes(8).toString('hex'), title: String(name || 'Audio de YouTube').slice(0, 200), source: 'youtube', url, format, duration: null, addedAt: Date.now() };
+    if (request) entry.request = { by: String(request.by).slice(0, 30), start: Number(request.start), end: Number(request.end) };
     await fs.writeFile(ownedFile(entry), bytes);
     entries.unshift(entry); await save();
     return publicEntry(entry);

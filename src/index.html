@@ -38,6 +38,24 @@
     <div id="library-list" class="library-list" role="listbox" tabindex="0" aria-label="Pistas de la biblioteca; flechas para elegir, 1 a 4 para cargar en un deck"></div>
     <p id="library-empty" class="library-empty"></p>
   </section>
+  <section class="requests" aria-labelledby="requests-title">
+    <div class="library-bar">
+      <h2 id="requests-title">Pedidos del público <span id="requests-count"></span></h2>
+      <button id="requests-toggle" aria-pressed="false">Abrir pedidos</button>
+      <button id="requests-clear" class="subtle" hidden>Quitar terminados</button>
+    </div>
+    <div id="requests-access" class="requests-access" hidden>
+      <canvas id="requests-qr" width="216" height="216" aria-label="Código QR de la página de pedidos"></canvas>
+      <div>
+        <p>Los invitados escanean el QR con el móvil, conectados al mismo wifi, o abren:</p>
+        <p id="requests-url" class="requests-url"></p>
+        <p>Código de la sesión: <strong id="requests-code"></strong></p>
+        <p class="hint">Cada invitado puede tener 3 pedidos en espera. Nada se descarga hasta que lo aceptas.</p>
+      </div>
+    </div>
+    <ul id="requests-list" class="requests-list"></ul>
+    <p id="requests-empty" class="library-empty"></p>
+  </section>
   <section class="drawers">
     <details class="drawer midi-drawer">
       <summary>Asignar controles a mano</summary>

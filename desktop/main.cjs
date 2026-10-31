@@ -5,6 +5,7 @@ const { pathToFileURL } = require('node:url');
 const { createImporter } = require('./youtube.cjs');
 const { createLibrary, FORMATS } = require('./library.cjs');
 const { checkPermission, requestPermission } = require('./permissions.cjs');
+const { createRequestService } = require('./requests.cjs');
 const entry = path.join(__dirname, '../src/index.html');
 const entryURL = pathToFileURL(entry).href;
 let window;
@@ -17,9 +18,12 @@ app.whenReady().then(() => {
     if (!authorized(event) || typeof enabled !== 'boolean') throw new Error('Solicitud de cámara no permitida');
     cameraEnabled = enabled; return enabled;
   });
+  // One YouTube download at a time: the DJ's own imports and accepted guest requests share the importer.
+  let downloads = Promise.resolve();
+  const exclusive = task => { const run = downloads.then(task, task); downloads = run.catch(() => {}); return run; };
   ipcMain.handle('youtube:import', async (event, url) => {
     if (!authorized(event)) throw new Error('Origen no permitido');
-    return importer.importAudio(url, progress => { if (!event.sender.isDestroyed()) event.sender.send('youtube:progress', progress); });
+    return exclusive(() => importer.importAudio(url, progress => { if (!event.sender.isDestroyed()) event.sender.send('youtube:progress', progress); }));
   });
   ipcMain.handle('youtube:cancel', event => { if (!authorized(event)) throw new Error('Origen no permitido'); importer.cancel(); });
   const library = createLibrary(path.join(app.getPath('userData'), 'library'));
@@ -29,8 +33,33 @@ app.whenReady().then(() => {
   });
   handle('library:list', () => library.list());
   handle('library:import-youtube', async (event, url) => {
-    const file = await importer.importAudio(url, progress => { if (!event.sender.isDestroyed()) event.sender.send('youtube:progress', progress); });
+    const file = await exclusive(() => importer.importAudio(url, progress => { if (!event.sender.isDestroyed()) event.sender.send('youtube:progress', progress); }));
     return library.addImport(file, url);
+  });
+  const notify = (channel, payload) => { if (window && !window.isDestroyed()) window.webContents.send(channel, payload); };
+  const requests = createRequestService({ guestFolder: path.join(__dirname, 'guest'), onChange: list => notify('requests:changed', list) });
+  handle('requests:open', () => requests.open());
+  handle('requests:close', () => requests.close());
+  handle('requests:state', () => ({ info: requests.info(), list: requests.list() }));
+  handle('requests:reject', (_event, id) => { requests.update(id, { status: 'rejected', message: '' }); });
+  handle('requests:clear', () => requests.clearFinished());
+  // Accepting downloads the whole song and stores the guest's part with it, so the DJ (or the Auto DJ) can mix in and out.
+  handle('requests:approve', (_event, id) => {
+    const item = requests.get(id);
+    if (!item || !['pending', 'failed'].includes(item.status)) throw new Error('Ese pedido ya no está en espera.');
+    requests.update(id, { status: 'approved', message: 'En cola de descarga' });
+    exclusive(async () => {
+      let step = -1;
+      requests.update(id, { status: 'downloading', message: 'Descargando…' });
+      const file = await importer.importAudio(item.url, progress => {
+        const tenth = Math.floor((progress.percent ?? 0) / 10);
+        if (tenth !== step) { step = tenth; requests.update(id, { message: progress.percent === undefined ? progress.message : `Descargando ${tenth * 10} %` }); }
+      });
+      const entry = await library.addImport(file, item.url, { by: item.name, start: item.start, end: item.end });
+      requests.update(id, { status: 'ready', message: '', entryId: entry.id, title: entry.title });
+      notify('library:changed');
+    }).catch(error => requests.update(id, { status: 'failed', message: error.message }));
+    return true;
   });
   handle('library:add-files', async (_event, multiple) => {
     const result = await dialog.showOpenDialog(window, {
@@ -59,7 +88,7 @@ app.whenReady().then(() => {
     if (result.canceled) return false;
     await writeFile(result.filePath, file.bytes); return true;
   });
-  app.on('before-quit', () => importer.cancel());
+  app.on('before-quit', () => { importer.cancel(); requests.close(); });
   session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) =>
     contents === window?.webContents && contents.getURL() === entryURL && checkPermission(permission, details, cameraEnabled));
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) =>

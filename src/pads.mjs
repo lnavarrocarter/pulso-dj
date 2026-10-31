@@ -46,7 +46,7 @@ export function createPads({ deck, sampler, number, status, loadSample }) {
   const actions = {
     hotcue: {
       press: (pad, shift) => deck.triggerHotCue(pad, shift),
-      label: pad => [String(pad + 1), deck.hotCues[pad] === null ? 'Hot cue' : formatTime(deck.hotCues[pad])],
+      label: pad => [String(pad + 1), deck.hotCues[pad] === null ? 'Cue' : formatTime(deck.hotCues[pad])],
       lit: pad => deck.hotCues[pad] !== null
     },
     fxfade: {

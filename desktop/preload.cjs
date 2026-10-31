@@ -12,7 +12,25 @@ contextBridge.exposeInMainWorld('desktop', {
     read: id => ipcRenderer.invoke('library:read', id),
     setDuration: (id, duration) => ipcRenderer.invoke('library:set-duration', id, duration),
     remove: id => ipcRenderer.invoke('library:remove', id),
-    export: id => ipcRenderer.invoke('library:export', id)
+    export: id => ipcRenderer.invoke('library:export', id),
+    onChanged: callback => {
+      const listener = () => callback();
+      ipcRenderer.on('library:changed', listener);
+      return () => ipcRenderer.removeListener('library:changed', listener);
+    }
+  },
+  requests: {
+    open: () => ipcRenderer.invoke('requests:open'),
+    close: () => ipcRenderer.invoke('requests:close'),
+    state: () => ipcRenderer.invoke('requests:state'),
+    approve: id => ipcRenderer.invoke('requests:approve', id),
+    reject: id => ipcRenderer.invoke('requests:reject', id),
+    clear: () => ipcRenderer.invoke('requests:clear'),
+    onChanged: callback => {
+      const listener = (_event, list) => callback(list);
+      ipcRenderer.on('requests:changed', listener);
+      return () => ipcRenderer.removeListener('requests:changed', listener);
+    }
   },
   onYouTubeProgress: callback => {
     const listener = (_event, progress) => callback(progress);

@@ -14,7 +14,9 @@ export function mountLibrary({ load, deckCount, deckState, status }) {
       const row = $('#track-row-template').content.firstElementChild.cloneNode(true);
       row.dataset.id = entry.id; row.setAttribute('aria-selected', String(entry.id === selectedId));
       row.querySelector('.row-title').textContent = entry.title;
-      row.querySelector('.row-source').textContent = entry.source === 'youtube' ? 'YouTube' : 'Archivo';
+      row.querySelector('.row-source').textContent = entry.request
+        ? `Pedido de ${entry.request.by} · ${formatTime(entry.request.start)}–${formatTime(entry.request.end)}`
+        : entry.source === 'youtube' ? 'YouTube' : 'Archivo';
       row.querySelector('.row-duration').textContent = entry.duration ? formatTime(entry.duration) : '—';
       const decks = deckState().map((deck, index) => deck.trackId === entry.id ? index + 1 : null).filter(Boolean);
       row.querySelector('.row-decks').textContent = decks.length ? `En deck ${decks.join(', ')}` : '';
@@ -66,7 +68,7 @@ export function mountLibrary({ load, deckCount, deckState, status }) {
     if (deckState()[deck].playing) { status(`El deck ${deck + 1} está sonando. Páusalo antes de cargar otra pista.`); return false; }
     try {
       const file = await api.read(entry.id);
-      const duration = await load(deck, file, entry.id);
+      const duration = await load(deck, file, entry.id, entry);
       if (!entry.duration && duration) { entry.duration = duration; api.setDuration(entry.id, duration).catch(() => {}); }
       render(); return true;
     } catch (error) { status(error.message); return false; }
@@ -119,9 +121,13 @@ export function mountLibrary({ load, deckCount, deckState, status }) {
     const deck = Number(event.key) - 1;
     if (deck >= 0 && deck < deckCount()) { event.preventDefault(); event.stopPropagation(); loadInto(deck); }
   });
-  if (api) api.list().then(list => { entries = list; render(); }).catch(error => status(error.message)); else render();
+  const reload = () => api.list().then(list => { entries = list; render(); }).catch(error => status(error.message));
+  if (api) { reload(); api.onChanged?.(reload); } else render();
   return {
     moveSelection, loadInto, addFiles, render,
+    entries: () => entries.slice(),
+    // Selects a track and scrolls the list to it (for example a guest request that just finished downloading).
+    reveal(id) { filter = ''; $('#library-search').value = ''; render(); select(id, true); $('#library-list').focus(); },
     hasSelection: () => entries.some(entry => entry.id === selectedId),
     // The selected track's audio, for the sampler; null without a selection.
     async readSelection() {

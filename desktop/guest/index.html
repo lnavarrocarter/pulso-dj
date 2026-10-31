@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Pide tu canción · Pulso DJ</title>
+  <link rel="stylesheet" href="guest.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="brand">Pulso <b>DJ</b></p>
+      <h1>Pide tu canción</h1>
+      <p class="lead">Pega un enlace de YouTube y marca la parte que más te gusta, hasta 3 minutos. El DJ decide cuándo suena.</p>
+    </header>
+    <form id="code-form" class="card" hidden>
+      <label for="code">Código de la sesión</label>
+      <p class="hint">Está junto al QR, en la pantalla del DJ.</p>
+      <input id="code" autocomplete="off" autocapitalize="characters" maxlength="8" required>
+      <button type="submit">Entrar</button>
+    </form>
+    <form id="request-form" class="card" hidden>
+      <label for="name">Tu nombre</label>
+      <input id="name" autocomplete="nickname" maxlength="30" required>
+      <label for="link">Enlace de YouTube</label>
+      <div class="row"><input id="link" type="url" inputmode="url" placeholder="https://youtu.be/…" required><button id="find" type="button">Ver</button></div>
+      <div id="video" hidden>
+        <div class="player"><div id="player"></div></div>
+        <p id="video-title" class="video-title"></p>
+        <div class="part" aria-describedby="part-help">
+          <div class="bar" aria-hidden="true"><i id="part-bar"></i></div>
+          <div class="marks">
+            <label>Inicio<input id="start" inputmode="numeric" placeholder="0:00" required></label>
+            <button id="mark-start" type="button" class="subtle">Marcar aquí</button>
+            <label>Final<input id="end" inputmode="numeric" placeholder="3:00" required></label>
+            <button id="mark-end" type="button" class="subtle">Marcar aquí</button>
+          </div>
+          <p id="part-help" class="hint">Reproduce el vídeo y pulsa «Marcar aquí» al empezar y al acabar tu parte, o escribe los minutos (m:ss).</p>
+          <button id="preview" type="button" class="subtle wide">Escuchar mi parte</button>
+        </div>
+        <button id="send" type="submit" class="wide">Enviar al DJ</button>
+      </div>
+    </form>
+    <p id="message" class="message" role="status"></p>
+    <section id="mine" class="card" hidden aria-labelledby="mine-title">
+      <h2 id="mine-title">Tus pedidos</h2>
+      <ul id="mine-list"></ul>
+    </section>
+  </main>
+  <script src="guest.js"></script>
+</body>
+</html>

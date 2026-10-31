@@ -5,6 +5,7 @@ import { profileFor, nextLoopSize, JOG_SECONDS_PER_TICK } from './controllers.mj
 import { knob, platter, setMeter } from './console-ui.mjs';
 import { mountLibrary } from './library-ui.mjs';
 import { createPads } from './pads.mjs';
+import { mountRequests } from './requests-ui.mjs';
 const $ = selector => document.querySelector(selector);
 const mixer = new Mixer();
 const status = message => { $('#status').textContent = message; };
@@ -104,13 +105,20 @@ mixer.decks.forEach((deck, index) => {
   const setCue = () => { deck.cue = deck.position; status(`Cue del deck ${number} marcado en ${formatTime(deck.cue)}.`); };
   find('.set-cue').onclick = setCue;
   // Decodes a track into this deck and returns its duration so the library can remember it.
-  const loadTrack = async (file, id = null) => {
+  // entry: the library entry, when the track comes from it; a guest request starts at the guest's favourite part,
+  // with hot cues 1 and 2 on its start and end.
+  const loadTrack = async (file, id = null, entry = null) => {
     status(`Cargando ${file.name}…`);
     const bytes = new Uint8Array(file.bytes); await deck.load(bytes.buffer);
     trackId = id; find('.track').textContent = file.name;
     find('.track-info').textContent = `${formatTime(deck.duration)} · ${deck.buffer.sampleRate / 1000} kHz · ${deck.buffer.numberOfChannels === 1 ? "mono" : "estéreo"}`;
     for (const element of view.querySelectorAll('.play,.cue,.set-cue,.sync,[data-loop],.loop-off')) element.disabled = false;
-    status(`Pista lista en el deck ${number}.`);
+    const part = entry?.request;
+    if (part && part.start < deck.duration) {
+      const end = Math.min(part.end, deck.duration);
+      deck.cue = part.start; deck.hotCues[0] = part.start; deck.hotCues[1] = end; await deck.seek(part.start);
+      status(`Pista lista en el deck ${number}, en la parte que eligió ${part.by} (${formatTime(part.start)}–${formatTime(end)}).`);
+    } else status(`Pista lista en el deck ${number}.`);
     return deck.duration;
   };
   find('.load').onclick = () => safe(async () => {
@@ -224,7 +232,7 @@ const setMasterCue = on => {
 const masterCue = () => $('#master-cue').getAttribute('aria-pressed') === 'true';
 $('#master-cue').onclick = () => setMasterCue(!masterCue());
 library = mountLibrary({
-  load: (deck, file, id) => deckActions[deck].loadTrack(file, id),
+  load: (deck, file, id, entry) => deckActions[deck].loadTrack(file, id, entry),
   deckCount: visibleDecks,
   deckState: () => mixer.decks.map((deck, i) => ({ playing: deck.playing, trackId: deckActions[i].trackId() })),
   status
@@ -497,4 +505,5 @@ async function chooseOutput(remember = true) {
 $('#output').onchange = () => safe(chooseOutput);
 if (navigator.mediaDevices) navigator.mediaDevices.ondevicechange = () => safe(listOutputs);
 safe(listOutputs);
+mountRequests({ status, library });
 mountAssistant(mixer, status);
