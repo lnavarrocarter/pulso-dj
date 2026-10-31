@@ -11,7 +11,7 @@ const entryURL = pathToFileURL(entry).href;
 let window;
 let cameraEnabled = false;
 app.whenReady().then(() => {
-  const toolFolder = app.isPackaged ? path.join(process.resourcesPath, 'tools') : path.join(__dirname, '../assets/tools', process.platform === 'win32' ? 'win' : 'mac');
+  const toolFolder = app.isPackaged ? path.join(process.resourcesPath, 'tools') : path.join(__dirname, '../assets/tools', { win32: 'win', darwin: 'mac' }[process.platform] ?? 'linux');
   const importer = createImporter({ executable: path.join(toolFolder, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'), runtime: process.execPath, tempRoot: app.getPath('temp') });
   const authorized = event => event.sender === window?.webContents && event.senderFrame?.url === entryURL;
   ipcMain.handle('camera:enable', (event, enabled) => {

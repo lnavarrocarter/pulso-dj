@@ -2,7 +2,9 @@
   "name": "pulso-dj",
   "version": "0.5.0",
   "private": true,
-  "description": "Base de aplicación DJ para Windows y macOS",
+  "description": "Base de aplicación DJ para Windows, macOS y Linux",
+  "homepage": "https://github.com/lnavarrocarter/pulso-dj",
+  "author": { "name": "Nacho Navarro", "email": "lnavarrocarter@users.noreply.github.com" },
   "main": "desktop/main.cjs",
   "scripts": {
     "start": "electron .",
@@ -28,6 +30,7 @@
     "extraResources": [{ "from": "assets/tools/${os}", "to": "tools" }],
     "win": { "target": "nsis" },
     "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "artifactName": "Pulso-DJ-${version}-Windows-Setup.${ext}" },
+    "linux": { "target": ["AppImage", "deb"], "category": "AudioVideo", "executableName": "pulso-dj", "synopsis": "Mezcla con 4 decks, controladoras MIDI y pedidos del público", "maintainer": "Nacho Navarro <lnavarrocarter@users.noreply.github.com>", "artifactName": "Pulso-DJ-${version}-Linux-${arch}.${ext}" },
     "mac": { "target": "dmg", "category": "public.app-category.music", "extendInfo": { "NSCameraUsageDescription": "Pulso DJ usa la cámara, cuando la activas, para medir movimiento visual localmente y adaptar la capa musical." } }
   }
 }

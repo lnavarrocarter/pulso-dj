@@ -1,8 +1,8 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const platform = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : null;
-const asset = platform === 'win' ? 'yt-dlp.exe' : 'yt-dlp_macos';
+const platform = { win32: 'win', darwin: 'mac', linux: 'linux' }[process.platform] ?? null;
+const asset = { win: 'yt-dlp.exe', mac: 'yt-dlp_macos', linux: 'yt-dlp_linux' }[platform];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 async function get(url) {
   const response = await fetch(url, { signal: AbortSignal.timeout(120000), headers: { 'User-Agent': 'Pulso-DJ-build' } });
@@ -10,7 +10,7 @@ async function get(url) {
   return response;
 }
 async function prepare() {
-  if (!platform) throw new Error('Solo Windows y macOS por ahora');
+  if (!platform) throw new Error('Solo Windows, macOS y Linux por ahora');
   const folder = path.join(__dirname, '../assets/tools', platform);
   const executable = path.join(folder, platform === 'win' ? 'yt-dlp.exe' : 'yt-dlp');
   const manifestPath = path.join(folder, 'manifest.json');
@@ -33,7 +33,7 @@ async function prepare() {
   const bytes = Buffer.from(await (await get(prefix + asset)).arrayBuffer());
   if (hash(bytes) !== expected.toLowerCase()) throw new Error('Checksum de yt-dlp incorrecto');
   await fs.mkdir(folder, { recursive: true });
-  await fs.writeFile(executable, bytes); if (platform === 'mac') await fs.chmod(executable, 0o755);
+  await fs.writeFile(executable, bytes); if (platform !== 'win') await fs.chmod(executable, 0o755);
   await fs.writeFile(manifestPath, JSON.stringify({ version: release.tag_name, sha256: hash(bytes), source: prefix + asset }, null, 2));
   const license = await (await get(`https://raw.githubusercontent.com/yt-dlp/yt-dlp/${encodeURIComponent(release.tag_name)}/LICENSE`)).text();
   await fs.writeFile(path.join(folder, 'LICENSE-yt-dlp.txt'), license);

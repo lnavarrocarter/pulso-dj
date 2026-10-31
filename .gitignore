@@ -10,3 +10,4 @@ work/
 .DS_Store
 assets/tools/**/*.exe
 assets/tools/mac/yt-dlp
+assets/tools/linux/yt-dlp
