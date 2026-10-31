@@ -25,6 +25,7 @@ test('rechaza hosts suplantados, credenciales, protocolos y listas', () => {
 test('el proceso no utiliza shell, configuración, cookies ni comandos de usuario', () => {
   const args = downloadArgs(url, 'C:/temp/test', 'C:/Program Files/Pulso DJ.exe');
   assert.ok(args.includes('--ignore-config')); assert.ok(args.includes('--no-plugin-dirs'));
+  assert.equal(args[args.indexOf('--encoding') + 1], 'utf-8', 'títulos con acentos y emoji');
   assert.equal(args.at(-2), '--'); assert.equal(args.at(-1), url);
   assert.ok(!args.some(value => /cookies|allow-unplayable|exec$/.test(value)));
 });

@@ -16,7 +16,8 @@ function normalizeYouTubeURL(input) {
   return `https://www.youtube.com/watch?v=${id}`;
 }
 function downloadArgs(url, folder, runtime) {
-  return ['--ignore-config', '--no-plugin-dirs', '--no-cache-dir', '--no-playlist', '--no-warnings',
+  // --encoding: on Windows yt-dlp otherwise prints titles in the console code page and drops or garbles accents and emoji.
+  return ['--ignore-config', '--no-plugin-dirs', '--no-cache-dir', '--no-playlist', '--no-warnings', '--encoding', 'utf-8',
     '--socket-timeout', '20', '--retries', '2', '--fragment-retries', '2', '--max-filesize', '128M',
     '--match-filter', '!is_live & !is_upcoming & duration <= 1200',
     '--js-runtimes', `node:${runtime}`, '--format', 'bestaudio[ext=m4a]/bestaudio[ext=webm]',
